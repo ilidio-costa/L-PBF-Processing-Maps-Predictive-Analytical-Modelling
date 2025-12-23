@@ -17,12 +17,12 @@ By establishing relationships between processing parameters (laser power, scanni
 The model utilizes analytical solutions to estimate melt pool dimensions and evaluate defect criteria:
 
 * **Melt Pool Estimation**:
-    * [cite_start]**Width & Length**: Calculated using the **Eagar-Tsai model**[cite: 55], which assumes a traveling **Gaussian-distributed heat source** on a semi-infinite substrate.
-    * [cite_start]**Depth**: Estimated using the **Gladush-Smurov model** [cite: 127] to account for deep-penetration physics (keyhole mode) often seen in L-PBF.
+    * **Width & Length**: Calculated using the **Eagar-Tsai model**, which assumes a traveling **Gaussian-distributed heat source** on a semi-infinite substrate.
+    * **Depth**: Estimated using the **Gladush-Smurov model** to account for deep-penetration physics (keyhole mode) often seen in L-PBF.
 * **Defect Prediction**:
-    * [cite_start]**Balling**: Evaluated using **Yadroitsev’s criteria** (melt pool stability)[cite: 152].
-    * [cite_start]**Keyhole Porosity**: Predicted using **Rubenchik’s criteria** based on normalized enthalpy[cite: 170].
-    * [cite_start]**Lack of Fusion**: Assessed using **Seede’s criteria** regarding hatch spacing and layer overlap[cite: 185].
+    * **Balling**: Evaluated using **Yadroitsev’s criteria** (melt pool stability).
+    * **Keyhole Porosity**: Predicted using **Rubenchik’s criteria** based on normalized enthalpy.
+    * **Lack of Fusion**: Assessed using **Seede’s criteria** regarding hatch spacing and layer overlap.
 
 ## 📂 Repository Structure
 The project is organized as follows:
