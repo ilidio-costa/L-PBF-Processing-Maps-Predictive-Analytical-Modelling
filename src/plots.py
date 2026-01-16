@@ -2,134 +2,289 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
+from scipy.optimize import minimize_scalar
 
-from .physics import get_temp_at_point, get_temp_at_point_substituted, rubenchik, get_temp_rubenchik, rubenchik_field, get_melt_depth_gladush, get_defect_masks
+from .physics import (
+    eagar_tsai_temp,        
+    rubenchik, 
+    get_temp_rubenchik, 
+    rubenchik_field, 
+    get_melt_depth_gladush, 
+    get_defect_masks,
+    get_eagar_tsai_dimensions
+)
 
-# Eagar-Tsai Melt Pool Plots
-def length_depth_eagar_tsai(P, v, a, material, x_range=(-2e-3, 1e-3), z_depth=-1e-3, resolution=40):
+## ================ Eagar-Tsai Melt Pool Plots =============== ##
+
+# --- Main Plotting Functions ---
+
+# [src/plots.py] 
+
+def top_view_eagar_tsai(P, v, a, material, resolution=200):
+    """
+    Generates a top-down contour plot (XY plane) of the melt pool.
+    Correctly scaled (1:1 aspect ratio) and centered on the melt pool.
+    """
+    # 1. Get Accurate Dimensions AND Boundaries
+    L, W, D, x_tail, x_front = get_eagar_tsai_dimensions(P, v, a, material)
     
-    print(f"Calculating {resolution}x{resolution} grid...")
-
-    xs = np.linspace(x_range[0], x_range[1], resolution)
-    zs = np.linspace(z_depth, 0, resolution)
-    X, Z = np.meshgrid(xs, zs)
-    
-    T_field = np.zeros_like(X)
-    min_target_temp = material['T_m']  # Default to melting point if not specified
-
-    for i in range(resolution):
-        for j in range(resolution):
-            x_val = X[i, j]
-            z_val = Z[i, j] 
-            
-            # Calling the function imported from physics.py
-            # Ensure get_temp_at_point handles base units (meters) correctly
-            T_field[i, j] = get_temp_at_point_substituted(x_val, 0, z_val, P, v, a, material)
-
-    # Plotting Logic
-    plt.figure(figsize=(10, 6))
-    max_temp = np.max(T_field)
-    
-    melt_mask = T_field >= min_target_temp
-    if np.any(melt_mask):
-        x_melt = X[melt_mask]
-        z_melt = Z[melt_mask]
-        pool_length = (np.max(x_melt) - np.min(x_melt)) * 1e6
-        pool_depth = (np.max(z_melt) - np.min(z_melt)) * 1e6
-        dim_label = f"L: {pool_length:.1f}µm | D: {pool_depth:.1f}µm"
+    if L > 0:
+        dim_label = f"L: {L*1e6:.1f}µm | W: {W*1e6:.1f}µm"
+        
+        # Smart Centering: Add 20% padding around the melt pool
+        padding_x = L * 0.2
+        padding_y = W * 0.2
+        
+        x_min, x_max = x_tail - padding_x, x_front + padding_x
+        y_min, y_max = -W/2 - padding_y, W/2 + padding_y
     else:
         dim_label = "No Melt Pool"
+        # Fallback view (5x beam radius)
+        x_min, x_max = -5*a, 2*a
+        y_min, y_max = -3.5*a, 3.5*a
 
-    if max_temp < min_target_temp:
-        levels = np.linspace(293, max_temp, 20)
-    else:
-        levels = np.linspace(min_target_temp, max_temp, 50)
-
-    # CHANGE 1: Multiply X and Z by 1e6 instead of 1e3 to convert meters to microns
-    contour = plt.contourf(X * 1e6, Z * 1e6, T_field, levels=levels, cmap='inferno', extend='max')
-    plt.contour(X * 1e6, Z * 1e6, T_field, levels=[min_target_temp], colors='cyan', linewidths=2, linestyles='dashed')
-
-    plt.colorbar(contour, label='Temperature (K)')
-    
-    # CHANGE 2: Update labels to use microns (mu m)
-    # Using raw string (r'...') allows latex formatting for the greek letter mu
-    plt.xlabel(r'Distance ($\mu m$)')
-    plt.ylabel(r'Depth Z ($\mu m$)')
-    
-    plt.title(f'Melt Pool XZ View (y=0)\n{dim_label}\nP={P}W, v={v*1000}mm/s')
-    
-    # CHANGE 3: Update limit scaling to 1e6
-    plt.ylim(z_depth * 1e6, 0)
-    
-    plt.grid(True, alpha=0.2)
-    plt.show()
-
-def length_width_eagar_tsai(P, v, a, material, x_range=(-0.5e-3, 0.5e-3), y_range=(-0.2e-3, 0.2e-3), resolution=40):
-    
-    print(f"Calculating {resolution}x{resolution} grid (Top View)...")
-
-    # 1. Setup Grid
-    xs = np.linspace(x_range[0], x_range[1], resolution)
-    ys = np.linspace(y_range[0], y_range[1], resolution)
+    # 2. Setup Grid
+    xs = np.linspace(x_min, x_max, resolution)
+    ys = np.linspace(y_min, y_max, resolution)
     X, Y = np.meshgrid(xs, ys)
     
-    T_field = np.zeros_like(X)
-    min_target_temp = material['T_m'] 
-
-    # 2. Calculate Temperature Field
+    # 3. Calculate Temperature Field
+    Z_temp = np.zeros_like(X)
     for i in range(resolution):
         for j in range(resolution):
-            x_val = X[i, j]
-            y_val = Y[i, j] 
-            # Z is fixed at 0 for top-down view
-            T_field[i, j] = get_temp_at_point_substituted(x_val, y_val, 0, P, v, a, material)
+            Z_temp[i, j] = eagar_tsai_temp(X[i, j], Y[i, j], 0, P, v, a, material)
 
-    # 3. Calculate Dimensions for the Title
-    melt_mask = T_field >= min_target_temp
-    if np.any(melt_mask):
-        x_melt = X[melt_mask]
-        y_melt = Y[melt_mask]
-        pool_length = (np.max(x_melt) - np.min(x_melt)) * 1e6
-        pool_width = (np.max(y_melt) - np.min(y_melt)) * 1e6
-        dim_label = f"L: {pool_length:.1f}µm | W: {pool_width:.1f}µm"
+    # 4. Plot
+    fig, ax = plt.subplots(figsize=(8, 5))
+    contour = ax.contourf(X * 1e6, Y * 1e6, Z_temp, levels=50, cmap='inferno')
+    
+    # Draw Melt Pool Boundary (Tm)
+    ax.contour(X * 1e6, Y * 1e6, Z_temp, levels=[material['T_m']], colors='cyan', linewidths=2, linestyles='--')
+    
+    # --- KEY IMPROVEMENTS ---
+    ax.set_aspect('equal')  # Forces 1 unit in X to equal 1 unit in Y
+    
+    # Labels
+    ax.set_xlabel('Length X (µm)')
+    ax.set_ylabel('Width Y (µm)')
+    ax.set_title(f'Eagar-Tsai Top View (z=0)\n{dim_label}\nP={P}W, v={v*1000:.0f}mm/s')
+    plt.colorbar(contour, label='Temperature (K)')
+    ax.grid(True, alpha=0.3)
+    
+    return fig
+
+def side_view_eagar_tsai(P, v, a, material, resolution=200):
+    """
+    Generates a side-profile contour plot (XZ plane) of the melt pool.
+    Correctly scaled (1:1 aspect ratio).
+    """
+    # 1. Get Dimensions
+    L, W, D, x_tail, x_front = get_eagar_tsai_dimensions(P, v, a, material)
+    
+    if L > 0:
+        dim_label = f"L: {L*1e6:.1f}µm | D: {D*1e6:.1f}µm"
+        
+        padding_x = L * 0.2
+        padding_z = D * 0.2
+        
+        x_min, x_max = x_tail - padding_x, x_front + padding_x
+        z_min, z_max = -D - padding_z, 0 # Depth is negative Z
     else:
         dim_label = "No Melt Pool"
+        x_min, x_max = -5*a, 2*a
+        z_min, z_max = -3*a, 0
 
-    # 4. Plotting Logic (Using fig, ax)
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # 2. Setup Grid
+    xs = np.linspace(x_min, x_max, resolution)
+    zs = np.linspace(z_min, 0, resolution)
+    X, Z = np.meshgrid(xs, zs)
     
-    max_temp = np.max(T_field)
-    ambient = 293.0
-    
-    # Robust levels logic
-    if max_temp <= ambient:
-        levels = np.linspace(ambient, ambient+10, 20)
-    elif max_temp < min_target_temp:
-        levels = np.linspace(ambient, max_temp, 20)
-    else:
-        levels = np.linspace(min_target_temp, max_temp, 50)
+    # 3. Calculate Temp Field
+    Z_temp = np.zeros_like(X)
+    for i in range(resolution):
+        for j in range(resolution):
+            Z_temp[i, j] = eagar_tsai_temp(X[i, j], 0, Z[i, j], P, v, a, material)
 
-    # Plot Contours (Scale to microns)
-    contour = ax.contourf(X * 1e6, Y * 1e6, T_field, levels=levels, cmap='inferno', extend='max')
+    # 4. Plot
+    fig, ax = plt.subplots(figsize=(8, 5))
+    contour = ax.contourf(X * 1e6, Z * 1e6, Z_temp, levels=50, cmap='magma')
     
-    # Plot Melt Boundary
-    if max_temp >= min_target_temp:
-        ax.contour(X * 1e6, Y * 1e6, T_field, levels=[min_target_temp], colors='cyan', linewidths=2, linestyles='dashed')
-
-    # Add Colorbar
-    cbar = fig.colorbar(contour, ax=ax)
-    cbar.set_label('Temperature (K)')
-
-    # Labels and Title
-    ax.set_xlabel(r'Length X ($\mu m$)')
-    ax.set_ylabel(r'Width Y ($\mu m$)')
-    ax.set_title(f'Melt Pool XY View (z=0)\n{dim_label}\nP={P}W, v={v*1000}mm/s')
+    # Draw Melt Boundary
+    ax.contour(X * 1e6, Z * 1e6, Z_temp, levels=[material['T_m']], colors='cyan', linewidths=2, linestyles='--')
     
-    ax.grid(True, alpha=0.2)
-    ax.set_aspect('equal') # Important for top-down view
+    # --- KEY IMPROVEMENTS ---
+    ax.set_aspect('equal') # Forces 1:1 scaling
     
-    # Return the figure object
+    ax.set_xlabel('Length X (µm)')
+    ax.set_ylabel('Depth Z (µm)')
+    ax.set_title(f'Eagar-Tsai Side View (y=0)\n{dim_label}\nP={P}W, v={v*1000:.0f}mm/s')
+    plt.colorbar(contour, label='Temperature (K)')
+    ax.grid(True, alpha=0.3)
+    
     return fig
+
+def plot_process_grid_views(P_range, v_range, a, material, resolution=100):
+    """
+    Generates process window grid plots with ROBUST LIMIT DETECTION.
+    - Pre-scans ALL combinations to find the exact global bounding box.
+    - Ensures no clipping and minimal whitespace.
+    - Dynamic figure sizing based on aspect ratio.
+    """
+    Tm = material['T_m']
+    n_P = len(P_range)
+    n_v = len(v_range)
+    
+    print(f"[GRID] Pre-scanning {n_P * n_v} combinations for exact limits...")
+
+    # --- 1. ROBUST LIMIT SEARCH (Scan All) ---
+    # Initialize with the beam radius as a safe minimum fallback
+    global_min_x = -a 
+    global_max_x = a
+    global_max_W = a
+    global_max_D = a
+    global_peak_T = Tm
+
+    for P in P_range:
+        for v in v_range:
+            # Low resolution is fine for finding bounds (speed optimization)
+            L, W, D, x_tail, x_front = get_eagar_tsai_dimensions(P, v, a, material, resolution=40)
+            
+            # Update Global Extents
+            if L > 0:
+                global_min_x = min(global_min_x, x_tail)
+                global_max_x = max(global_max_x, x_front)
+                global_max_W = max(global_max_W, W)
+                global_max_D = max(global_max_D, D)
+                
+                # Check Peak Temp (approximate is fine for colorbar max)
+                res_peak = minimize_scalar(
+                    lambda x: -eagar_tsai_temp(x, 0, 0, P, v, a, material), 
+                    bounds=(-5*a, a), method='bounded'
+                )
+                global_peak_T = max(global_peak_T, -res_peak.fun)
+
+    # --- 2. DEFINE LIMITS & PADDING ---
+    pad_factor = 1.15 # 15% padding
+    
+    x_min, x_max = global_min_x * pad_factor, global_max_x * pad_factor
+    
+    # Center Y on 0
+    y_min, y_max = -global_max_W/2 * pad_factor, global_max_W/2 * pad_factor
+    
+    # Z goes from negative depth to 0
+    z_min, z_max = -global_max_D * pad_factor, 0
+    
+    tlims = (300, global_peak_T * 1.05)
+
+    # --- 3. DYNAMIC ASPECT RATIO & FIGURE SIZE ---
+    # Calculate physical size of the view window
+    dx = x_max - x_min
+    dy = y_max - y_min
+    dz = abs(z_min)
+    
+    # Aspect Ratios
+    ratio_top = dy / dx
+    ratio_side = dz / dx
+    
+    # Base sizing: 3.5 inches wide per subplot
+    subplot_w = 3.5
+    
+    # Calculate total figure height needed + room for titles/colorbar
+    fig_w = n_P * subplot_w
+    fig_h_top = (n_v * subplot_w * ratio_top) + 1.5 
+    fig_h_side = (n_v * subplot_w * ratio_side) + 1.5
+
+    print(f"[GRID] Limits: X[{x_min*1e6:.0f}:{x_max*1e6:.0f}]µm | W[{global_max_W*1e6:.0f}]µm")
+    print(f"[GRID] Layout: Top Aspect {ratio_top:.2f}, Side Aspect {ratio_side:.2f}")
+
+    # --- 4. PLOTTING SETUP ---
+    X_grid = np.linspace(x_min, x_max, resolution)
+    Y_grid = np.linspace(y_min, y_max, resolution)
+    Z_grid = np.linspace(z_min, z_max, resolution)
+    
+    X_mesh_top, Y_mesh_top = np.meshgrid(X_grid, Y_grid)
+    X_mesh_side, Z_mesh_side = np.meshgrid(X_grid, Z_grid)
+
+    # ================= TOP VIEW =================
+    fig_top, axes_top = plt.subplots(nrows=n_v, ncols=n_P, 
+                                     figsize=(fig_w, fig_h_top), 
+                                     sharex=True, sharey=True,
+                                     constrained_layout=True)
+    
+    # Normalize axes array for 1x1, 1xN, Nx1 cases
+    if n_v == 1 and n_P == 1: axes_top = np.array([[axes_top]])
+    elif n_v == 1: axes_top = axes_top.reshape(1, -1)
+    elif n_P == 1: axes_top = axes_top.reshape(-1, 1)
+
+    fig_top.suptitle("Melt Pool Top Views (z=0) Process Map", fontsize=16)
+
+    last_contour = None
+
+    for i, v in enumerate(v_range):
+        for j, P in enumerate(P_range):
+            ax = axes_top[i, j]
+            
+            T_field = np.zeros_like(X_mesh_top)
+            for ri in range(resolution):
+                for ci in range(resolution):
+                    T_field[ri, ci] = eagar_tsai_temp(X_mesh_top[ri, ci], Y_mesh_top[ri, ci], 0, P, v, a, material)
+            
+            last_contour = ax.contourf(X_mesh_top*1e6, Y_mesh_top*1e6, T_field, 
+                                       levels=50, cmap='inferno', vmin=tlims[0], vmax=tlims[1])
+            ax.contour(X_mesh_top*1e6, Y_mesh_top*1e6, T_field, 
+                       levels=[Tm], colors='cyan', linewidths=1.5, linestyles='--')
+            
+            ax.set_aspect('equal')
+            ax.grid(True, alpha=0.2)
+            
+            # Only label outer edges
+            if i == n_v - 1: ax.set_xlabel("X (µm)")
+            if j == 0: ax.set_ylabel(f"v={v*1000:.0f}mm/s\n\nY (µm)")
+            if i == 0: ax.set_title(f"P={P:.0f}W")
+
+    # Add single colorbar
+    cbar = fig_top.colorbar(last_contour, ax=axes_top, location='right', aspect=30)
+    cbar.set_label('Temperature (K)', fontsize=12)
+
+    # ================= SIDE VIEW =================
+    fig_side, axes_side = plt.subplots(nrows=n_v, ncols=n_P, 
+                                       figsize=(fig_w, fig_h_side), 
+                                       sharex=True, sharey=True,
+                                       constrained_layout=True)
+    
+    if n_v == 1 and n_P == 1: axes_side = np.array([[axes_side]])
+    elif n_v == 1: axes_side = axes_side.reshape(1, -1)
+    elif n_P == 1: axes_side = axes_side.reshape(-1, 1)
+
+    fig_side.suptitle("Melt Pool Side Views (y=0) Process Map", fontsize=16)
+
+    last_contour_side = None
+
+    for i, v in enumerate(v_range):
+        for j, P in enumerate(P_range):
+            ax = axes_side[i, j]
+            
+            T_field = np.zeros_like(X_mesh_side)
+            for ri in range(resolution):
+                for ci in range(resolution):
+                    T_field[ri, ci] = eagar_tsai_temp(X_mesh_side[ri, ci], 0, Z_mesh_side[ri, ci], P, v, a, material)
+            
+            last_contour_side = ax.contourf(X_mesh_side*1e6, Z_mesh_side*1e6, T_field, 
+                                            levels=50, cmap='magma', vmin=tlims[0], vmax=tlims[1])
+            ax.contour(X_mesh_side*1e6, Z_mesh_side*1e6, T_field, 
+                       levels=[Tm], colors='cyan', linewidths=1.5, linestyles='--')
+            
+            ax.set_aspect('equal')
+            ax.grid(True, alpha=0.2)
+            
+            if i == n_v - 1: ax.set_xlabel("X (µm)")
+            if j == 0: ax.set_ylabel(f"v={v*1000:.0f}mm/s\n\nZ (µm)")
+            if i == 0: ax.set_title(f"P={P:.0f}W")
+
+    cbar_side = fig_side.colorbar(last_contour_side, ax=axes_side, location='right', aspect=30)
+    cbar_side.set_label('Temperature (K)', fontsize=12)
+
+    return fig_top, fig_side
 
 # Rubenchik Melt Pool Plots
 def length_depth_rubenchik(P, v, a, material, T_ambient=0, x_range=(-2e-3, 1e-3), z_depth=-1e-3, resolution=40):
@@ -263,6 +418,135 @@ def length_width_rubenchik(P, v, a, material, T_ambient=0, x_range=(-0.5e-3, 0.5
     return fig
 
 
+    """
+    Generates process window grid plots.
+    OPTIMIZED: Uses corner cases (P_max/v_min and P_max/v_max) to find axes limits
+    instead of computing every single pool in advance.
+    """
+    Tm = material['T_m']
+    n_P = len(P_range)
+    n_v = len(v_range)
+    
+    # Identify Corner Cases for Limits
+    P_max = max(P_range)
+    v_min = min(v_range)
+    v_max = max(v_range)
+    
+    print(f"[GRID] Optimization: Calculating limits using corner cases...")
+    print(f"       1. Max Width/Depth/Temp: P={P_max}W, v={v_min}m/s")
+    print(f"       2. Max Length (Tail):    P={P_max}W, v={v_max}m/s")
+
+    # --- CASE 1: High Energy (Widest, Deepest, Hottest) ---
+    # P_max, v_min
+    L1, W1, D1, x_tail1, x_front1 = get_eagar_tsai_dimensions(P_max, v_min, a, material, resolution=50)
+    
+    # Calculate Peak Temp for this hottest case
+    res_peak = minimize_scalar(
+        lambda x: -eagar_tsai_temp(x, 0, 0, P_max, v_min, a, material),
+        bounds=(-5*a, a), method='bounded'
+    )
+    T_max_global = -res_peak.fun
+
+    # --- CASE 2: High Speed (Longest Tail) ---
+    # P_max, v_max
+    # We check this to see if the high-speed "comet tail" extends further back than the massive low-speed pool.
+    L2, W2, D2, x_tail2, x_front2 = get_eagar_tsai_dimensions(P_max, v_max, a, material, resolution=50)
+
+    # --- DEFINE GLOBAL LIMITS ---
+    # Width/Depth: Case 1 is virtually always the largest
+    global_max_W = W1
+    global_max_D = D1
+    
+    # Length: The tail is the minimum X. We take the furthest back of the two cases.
+    # The front is the maximum X. We take the furthest forward.
+    global_min_x = min(x_tail1, x_tail2)
+    global_max_x = max(x_front1, x_front2)
+
+    # Padding
+    pad_factor = 1.2
+    
+    xlims = (global_min_x * pad_factor, global_max_x * pad_factor)
+    ylims = (-global_max_W/2 * pad_factor, global_max_W/2 * pad_factor)
+    zlims = (-global_max_D * pad_factor, 0)
+    tlims = (300, T_max_global * 1.05)
+
+    print(f"[GRID] Limits: X[{xlims[0]*1e6:.0f}:{xlims[1]*1e6:.0f}]µm | W_max:{global_max_W*1e6:.0f}µm")
+
+    # --- PLOTTING (Pass 2) ---
+    # Setup Meshes
+    X_grid = np.linspace(xlims[0], xlims[1], resolution)
+    Y_grid = np.linspace(ylims[0], ylims[1], resolution)
+    Z_grid = np.linspace(zlims[0], zlims[1], resolution)
+    
+    X_mesh_top, Y_mesh_top = np.meshgrid(X_grid, Y_grid)
+    X_mesh_side, Z_mesh_side = np.meshgrid(X_grid, Z_grid)
+
+    # Figure 1: Top View
+    fig_top, axes_top = plt.subplots(nrows=n_v, ncols=n_P, figsize=(3*n_P, 3*n_v), 
+                                     sharex=True, sharey=True)
+    # Ensure axes is always 2D array
+    if n_v == 1 and n_P == 1: axes_top = np.array([[axes_top]])
+    elif n_v == 1: axes_top = axes_top.reshape(1, -1)
+    elif n_P == 1: axes_top = axes_top.reshape(-1, 1)
+
+    fig_top.suptitle("Melt Pool Top Views (z=0) Process Map\n(Fixed Scale)", y=1.02)
+
+    for i, v in enumerate(v_range):
+        for j, P in enumerate(P_range):
+            ax = axes_top[i, j]
+            
+            # Compute Grid
+            T_field = np.zeros_like(X_mesh_top)
+            for ri in range(resolution):
+                for ci in range(resolution):
+                    T_field[ri, ci] = eagar_tsai_temp(X_mesh_top[ri, ci], Y_mesh_top[ri, ci], 0, P, v, a, material)
+            
+            # Plot
+            ax.contourf(X_mesh_top*1e6, Y_mesh_top*1e6, T_field, 
+                        levels=50, cmap='inferno', vmin=tlims[0], vmax=tlims[1])
+            ax.contour(X_mesh_top*1e6, Y_mesh_top*1e6, T_field, 
+                       levels=[Tm], colors='cyan', linewidths=1.5, linestyles='--')
+            
+            ax.set_aspect('equal')
+            ax.grid(True, alpha=0.2)
+            
+            if i == n_v - 1: ax.set_xlabel("X (µm)")
+            if j == 0: ax.set_ylabel(f"v={v*1000:.0f}mm/s\n\nY (µm)")
+            if i == 0: ax.set_title(f"P={P:.0f}W")
+
+    # Figure 2: Side View
+    fig_side, axes_side = plt.subplots(nrows=n_v, ncols=n_P, figsize=(3*n_P, 3*n_v), 
+                                       sharex=True, sharey=True)
+    if n_v == 1 and n_P == 1: axes_side = np.array([[axes_side]])
+    elif n_v == 1: axes_side = axes_side.reshape(1, -1)
+    elif n_P == 1: axes_side = axes_side.reshape(-1, 1)
+    
+    fig_side.suptitle("Melt Pool Side Views (y=0) Process Map\n(Fixed Scale)", y=1.02)
+
+    for i, v in enumerate(v_range):
+        for j, P in enumerate(P_range):
+            ax = axes_side[i, j]
+            
+            T_field = np.zeros_like(X_mesh_side)
+            for ri in range(resolution):
+                for ci in range(resolution):
+                    T_field[ri, ci] = eagar_tsai_temp(X_mesh_side[ri, ci], 0, Z_mesh_side[ri, ci], P, v, a, material)
+            
+            ax.contourf(X_mesh_side*1e6, Z_mesh_side*1e6, T_field, 
+                        levels=50, cmap='magma', vmin=tlims[0], vmax=tlims[1])
+            ax.contour(X_mesh_side*1e6, Z_mesh_side*1e6, T_field, 
+                       levels=[Tm], colors='cyan', linewidths=1.5, linestyles='--')
+            
+            ax.set_aspect('equal')
+            ax.grid(True, alpha=0.2)
+            
+            if i == n_v - 1: ax.set_xlabel("X (µm)")
+            if j == 0: ax.set_ylabel(f"v={v*1000:.0f}mm/s\n\nZ (µm)")
+            if i == 0: ax.set_title(f"P={P:.0f}W")
+
+    plt.tight_layout()
+    return fig_top, fig_side
+
 # Processing Map Melt Pool Dimension Plotting
 def plot_melt_pool_dimensions(x_var, y_var, x_range, y_range, fixed_params, material, T_ambient=298, use_gladush=True, resolution=100):
     """
@@ -334,7 +618,7 @@ def plot_melt_pool_dimensions(x_var, y_var, x_range, y_range, fixed_params, mate
         cbar.set_label(r'$(\mu m)$', fontsize=12, rotation=270, labelpad=15)
 
     plt.tight_layout()
-    plt.show()
+    return fig
 
 # Deffect Criteria Plots
 def plot_defect_map(x_var, y_var, x_range, y_range, fixed_params, material, 
@@ -418,7 +702,7 @@ def plot_defect_map(x_var, y_var, x_range, y_range, fixed_params, material,
     ax.contour(X, Y, is_balling, levels=[0.5], colors='k', linewidths=0.5)
 
     plt.tight_layout()
-    plt.show()
+    return fig
 
 # 3D Gaussian Laser Beam Visualization
 def gaussian_laser():

@@ -1,0 +1,20 @@
+23:46:43 - INFO - --- STARTING TEST: test_physics ---
+23:46:43 - INFO - Logs saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\logs\test_physics.log
+23:46:43 - INFO - Images will be saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output
+23:46:43 - INFO - >>> Running General Physics Checks...
+23:46:43 - INFO -  [PASS] Peak Temp Rise (approx): 35399.54 K
+23:46:43 - ERROR -  [FAIL] Rubenchik Depth is positive: 5.576685243834761e-05
+23:46:43 - INFO - 
+>>> Running Spatial Profile Sweep (X, Y, Z)...
+23:46:51 - INFO -  [PASS] Spatial profiles saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\spatial_profiles_sweep.png
+23:46:51 - INFO - 
+>>> Running Dimension Accuracy Benchmark...
+23:46:51 - INFO -  [NEW] Optimization Solver (0.2841s):
+23:46:51 - INFO -    L: 1876.42 µm
+23:46:51 - INFO -    W: 300.69 µm
+23:46:51 - INFO -    D: 141.58 µm
+23:46:52 - INFO -  [OLD] Grid Est (Res=200): L=1866.99 µm
+23:46:52 - INFO -    Error vs Optimization: 0.50%
+23:46:52 - INFO -  [PASS] Grid approximation is within acceptable error.
+23:46:52 - INFO - 
+ALL PHYSICS CHECKS COMPLETED.

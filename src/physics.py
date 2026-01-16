@@ -1,52 +1,229 @@
-from math import exp
-from re import A
+from math import exp, pi, sqrt, log
 import numpy as np
-from pyparsing import alphanums
 from scipy.integrate import quad
+from scipy.optimize import minimize_scalar, brentq
 
-# Eagar-Tsai Model
+## ======================= Eagar-Tsai Model ======================= ##
+
 def s_func(s, x, y, z, v, alpha, a):
     """
-    Integrand for the Eagar-Tsai model.
-    This helper must be visible to get_temp_at_point.
+    Original Eagar-Tsai Integrand.
+    s = Time lag (t - t')
+    x, y, z = Spatial coordinates
+    v = Scan speed [m/s]
+    alpha = Thermal diffusivity [m^2/s]
+    a = Laser beam radius [m]
     """
-    if s <= 0: return 0
+    if z >0:
+        print("Warning: positive z depth in s_func")
     
+    # 1. Denominator Terms
+    # The spreading of the beam: 4*alpha*s + a^2
+    denom_lateral = 4 * alpha * s + a**2
+    
+    # 2. Exponentials
+    # Vertical component (Z): exp(-z^2 / 4*alpha*s)
     term_z = z**2 / (4 * alpha * s)
-    numerator_lat = y**2 + (x - v * s)**2
-    denominator_lat = 4 * alpha * s + a**2
-    term_lateral = numerator_lat / denominator_lat
+    
+    # Lateral component (X, Y): 
+    # The source moves, so the center is at (x - v*s)
+    # Note: If x is positive ahead of the laser, (x-vs) is correct.
+    term_lateral = (y**2 + (x + v * s)**2) / denom_lateral
     
     exp_val = np.exp(-term_z - term_lateral)
-    denom_val = (4 * alpha * s + a**2) * np.sqrt(s)
     
-    return exp_val / denom_val
+    # 3. Final Combination
+    # Denominator includes sqrt(s) which is the source of the singularity
+    denom_total = denom_lateral * np.sqrt(s)
+    
+    return exp_val / denom_total
 
-def get_temp_at_point(x, y, z, P, v, a, material):
+def eagar_tsai_temp(x, y, z, P, v, a, material):
     """
-    Calculates T for a single scalar point.
+    Calculates T using the original Eagar-Tsai formulation.
+    Robust at high speeds due to 'Smart Limits'.
+    x, y, z = Spatial coordinates
+    P = Laser Power [W]
+    v = Scan speed [m/s]
+    a = Laser beam radius [m]
+    material = Material properties dictionary
+    A_val = Absorptivity (0-1)
+    k = Thermal conductivity [W/m.K]
+    alpha = Thermal diffusivity [m^2/s]
     """
-    A = material['A']
+    A_val = material['A']
     k = material['k']
     alpha = material['alpha']
     
-    pre_factor = (A * P / (np.pi * k)) * np.sqrt(alpha / np.pi)
+    # Pre-calculated constant factor
+    pre_factor = (A_val * P / (np.pi * k)) * np.sqrt(alpha / np.pi)
 
-    # Calculate peak location
-    integration_points = []
+   # --- 1. FIND PEAK LOCATION ---
+    # The peak contribution occurs when the laser passes the point.
     if x < 0:
-        # Peak is at s = |x|/v. Since s = tau^2, tau = sqrt(|x|/v)
-        tau_peak = np.sqrt(abs(x) / v)
-        integration_points = [tau_peak]  
-    # Ensure our peak isn't beyond our limit (unlikely, but safe)  
-    if integration_points and integration_points[0] > upper_limit:
-        upper_limit = integration_points[0] * 2.0
+        s_peak = abs(x) / v
+        points_of_interest = [s_peak]
+    else:
+        s_peak = 0
+        points_of_interest = []
 
-    # We call s_func here, so s_func must be defined in this file
-    integral_val, _ = quad(s_func, 0, 500**10, args=(x, y, z, v, alpha, a), points=integration_points, limit=100)
+    # --- 2. SMART UPPER LIMIT ---
+    # Stop integrating when heat dissipates. 
+    # Integrating to infinity causes "slowly convergent" warnings.
+    if s_peak > 0:
+        upper_limit = s_peak * 5.0 
+    else:
+        upper_limit = (a / v) * 10.0 
+        
+    upper_limit = max(upper_limit, 0.001) 
+
+    # --- 3. ROBUST INTEGRATION ---
+    # Start at 1e-9 instead of 0 to strictly avoid the 1/sqrt(s) singularity.
+    # This is numerically safe and physically accurate.
+    integral_val, error = quad(
+        s_func, 
+        1e-9,           # Lower limit > 0
+        upper_limit,    # Finite upper limit
+        args=(x, y, z, v, alpha, a),
+        points=points_of_interest, 
+        limit=100
+    )
     
     return (pre_factor * integral_val)
 
+def get_eagar_tsai_dimensions(P, v, a, material, resolution=100):
+    """
+    Calculates Melt Pool Dimensions by performing a global search for 
+    max width and max depth along the melt pool length.
+    
+    Returns: length, width, depth, x_tail, x_front
+    """
+    Tm = material['T_m']
+    
+    # --- 1. DYNAMIC TOLERANCE ---
+    # High resolution needed for gradients
+    if resolution:
+        tol = a / float(resolution) 
+    else:
+        tol = 1e-6 
+
+    # --- 2. FIND PEAK & CHECK EXISTENCE ---
+    # We first find the peak temperature on the surface centerline
+    res_peak = minimize_scalar(
+        lambda x: -eagar_tsai_temp(x, 0, 0, P, v, a, material), 
+        bounds=(-5*a, a), 
+        method='bounded',
+        options={'xatol': tol}
+    )
+    x_peak = res_peak.x
+    T_max = -res_peak.fun
+    
+    if T_max < Tm:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+
+    # --- 3. DEFINE LENGTH BOUNDARIES (x_tail, x_front) ---
+    # We solve T(x, 0, 0) = Tm to find the start and end of the pool
+    func_x = lambda x: eagar_tsai_temp(x, 0, 0, P, v, a, material) - Tm
+    
+    # -- Find Front (Start) --
+    step = a
+    x_scan_fwd = x_peak + step
+    # Scan forward until temp drops below Tm
+    while eagar_tsai_temp(x_scan_fwd, 0, 0, P, v, a, material) > Tm:
+        x_scan_fwd += step
+        step *= 1.5
+        if x_scan_fwd > x_peak + 0.1: break # Safety break
+
+    try:
+        x_front = brentq(func_x, x_peak, x_scan_fwd, xtol=tol)
+    except ValueError:
+        x_front = x_peak
+
+    # -- Find Tail (End) --
+    step = a
+    x_scan_bwd = x_peak - step
+    # Scan backward until temp drops below Tm
+    while eagar_tsai_temp(x_scan_bwd, 0, 0, P, v, a, material) > Tm:
+        x_scan_bwd -= step
+        step *= 1.5
+        if x_scan_bwd < x_peak - 0.1: break
+
+    try:
+        x_tail = brentq(func_x, x_scan_bwd, x_peak, xtol=tol)
+    except ValueError:
+        x_tail = x_peak
+    
+    length = x_front - x_tail
+
+    # === 4. GLOBAL DEPTH OPTIMIZATION ===
+    # Find the deepest point z_min along the entire length [x_tail, x_front]
+    
+    def get_depth_at_x(x_loc):
+        # If surface is below Tm, depth is 0
+        if eagar_tsai_temp(x_loc, 0, 0, P, v, a, material) < Tm:
+            return 0.0
+        
+        # Search vertically for T = Tm
+        func_z = lambda z: eagar_tsai_temp(x_loc, 0, z, P, v, a, material) - Tm
+        
+        # Find bracket
+        z_scan = -a
+        step_z = a
+        while eagar_tsai_temp(x_loc, 0, z_scan, P, v, a, material) > Tm:
+            z_scan -= step_z
+            step_z *= 1.5
+            if z_scan < -0.01: break
+            
+        try:
+            z_root = brentq(func_z, z_scan, 0, xtol=tol)
+            return abs(z_root)
+        except ValueError:
+            return 0.0
+
+    # Maximize depth (minimize negative depth)
+    res_d = minimize_scalar(
+        lambda x: -get_depth_at_x(x), 
+        bounds=(x_tail, x_front), 
+        method='bounded',
+        options={'xatol': tol}
+    )
+    depth = -res_d.fun
+
+    # === 5. GLOBAL WIDTH OPTIMIZATION ===
+    # Find the widest point y_max along the entire length [x_tail, x_front]
+
+    def get_width_at_x(x_loc):
+        if eagar_tsai_temp(x_loc, 0, 0, P, v, a, material) < Tm:
+            return 0.0
+        
+        # Search laterally for T = Tm
+        func_y = lambda y: eagar_tsai_temp(x_loc, y, 0, P, v, a, material) - Tm
+        
+        y_scan = a
+        step_y = a
+        while eagar_tsai_temp(x_loc, y_scan, 0, P, v, a, material) > Tm:
+            y_scan += step_y
+            step_y *= 1.5
+            if y_scan > 0.01: break
+        
+        try:
+            y_edge = brentq(func_y, 0, y_scan, xtol=tol) 
+            return y_edge * 2.0 # Total width
+        except ValueError:
+            return 0.0
+
+    # Maximize width
+    res_w = minimize_scalar(
+        lambda x: -get_width_at_x(x), 
+        bounds=(x_tail, x_front), 
+        method='bounded',
+        options={'xatol': tol} 
+    )
+    width = -res_w.fun
+
+    return length, width, depth, x_tail, x_front
+
+# ============= 00 ===================
 def s_func_substituted(tau, x, y, z, v, alpha, a):
     """
     Substituted integrand (s = tau^2) to remove the 1/sqrt(s) singularity.
@@ -110,7 +287,7 @@ def get_temp_at_point_substituted(x, y, z, P, v, a, material):
     
     return (pre_factor * integral_val)
 
-# Rubenchik Model
+## ======================= Rubenchik Model ====================== ##
 def g_func(t, xi, yi, zi, p):
     """
     Integrand for the dimensionless temperature function g.
@@ -204,7 +381,7 @@ def rubenchik_field(P,v,a, material, T_ambient):
 
     return length, width, depth
 
-# Gladush-Smurov Model for Depth
+## ================= Gladush-Smurov Model for Depth ==================== ##
 def get_melt_depth_gladush(P, v, a, material):
     '''
     Computes melt pool depth using the Gladush-Smurov empirical model.
