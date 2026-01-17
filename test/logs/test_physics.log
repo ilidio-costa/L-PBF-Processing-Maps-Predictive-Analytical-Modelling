@@ -1,20 +1,41 @@
-23:46:43 - INFO - --- STARTING TEST: test_physics ---
-23:46:43 - INFO - Logs saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\logs\test_physics.log
-23:46:43 - INFO - Images will be saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output
-23:46:43 - INFO - >>> Running General Physics Checks...
-23:46:43 - INFO -  [PASS] Peak Temp Rise (approx): 35399.54 K
-23:46:43 - ERROR -  [FAIL] Rubenchik Depth is positive: 5.576685243834761e-05
-23:46:43 - INFO - 
->>> Running Spatial Profile Sweep (X, Y, Z)...
-23:46:51 - INFO -  [PASS] Spatial profiles saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\spatial_profiles_sweep.png
-23:46:51 - INFO - 
+20:12:57 - INFO - --- STARTING TEST: test_physics ---
+20:12:57 - INFO - Logs saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\logs\test_physics.log
+20:12:57 - INFO - Images will be saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output
+20:12:57 - INFO - >>> Running General Physics Checks...
+20:12:57 - INFO -  [PASS] Peak Temp Rise (approx): 35399.54 K
+20:12:57 - ERROR -  [FAIL] Rubenchik Depth is positive: 5.576685243834761e-05
+20:12:57 - INFO - 
+>>> Running Rubenchik Temperature Model Checks...
+20:12:57 - INFO -    Testing Center Point (0,0,0)...
+20:12:57 - INFO -    [INFO] Rubenchik Peak T: 9350.00 K
+20:12:57 - INFO -    [PASS] Peak T (9350K) is significantly above ambient.
+20:12:57 - INFO -    Testing Far Field Point (x=5mm)...
+20:12:57 - INFO -    [INFO] Far Field T: 298.00 K
+20:12:57 - INFO -    [PASS] Temperature decays correctly in far field.
+20:12:57 - INFO - 
+>>> Running Rubenchik Continuity Stress Test (Micro-Scan)...
+20:12:58 - INFO -  [PASS] No NaNs in X-scan.
+20:12:58 - INFO -    Max inter-point jump in X: 224.97 K
+20:12:58 - INFO -  [PASS] X-profile appears continuous.
+20:12:59 - INFO -  [PASS] Z-scan successful. Surface T=9350.0 K
+20:12:59 - INFO - 
+>>> Running Eagar-Tsai Spatial Profile Sweep (X, Y, Z)...
+20:13:07 - INFO -  [PASS] Spatial profiles saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\eagar_tsai_spatial_profiles_sweep.png
+20:13:07 - INFO - 
+>>> Running Rubenchik Spatial Profile Sweep (X, Y, Z)...
+20:13:08 - INFO -    [P=150W, v=0.8m/s] Raw Physics Peak found at x = -13.3 µm
+20:13:12 - INFO -    [P=150W, v=1.2m/s] Raw Physics Peak found at x = -15.8 µm
+20:13:14 - INFO -    [P=350W, v=0.8m/s] Raw Physics Peak found at x = -13.3 µm
+20:13:15 - INFO -    [P=350W, v=1.2m/s] Raw Physics Peak found at x = -15.8 µm
+20:13:19 - INFO -  [PASS] Rubenchik profiles saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\rubenchik_spatial_profiles.png
+20:13:19 - INFO - 
 >>> Running Dimension Accuracy Benchmark...
-23:46:51 - INFO -  [NEW] Optimization Solver (0.2841s):
-23:46:51 - INFO -    L: 1876.42 µm
-23:46:51 - INFO -    W: 300.69 µm
-23:46:51 - INFO -    D: 141.58 µm
-23:46:52 - INFO -  [OLD] Grid Est (Res=200): L=1866.99 µm
-23:46:52 - INFO -    Error vs Optimization: 0.50%
-23:46:52 - INFO -  [PASS] Grid approximation is within acceptable error.
-23:46:52 - INFO - 
+20:13:19 - INFO -  [NEW] Optimization Solver (0.3717s):
+20:13:19 - INFO -    L: 1876.42 µm
+20:13:19 - INFO -    W: 300.69 µm
+20:13:19 - INFO -    D: 141.58 µm
+20:13:20 - INFO -  [OLD] Grid Est (Res=200): L=1866.99 µm
+20:13:20 - INFO -    Error vs Optimization: 0.50%
+20:13:20 - INFO -  [PASS] Grid approximation is within acceptable error.
+20:13:20 - INFO - 
 ALL PHYSICS CHECKS COMPLETED.

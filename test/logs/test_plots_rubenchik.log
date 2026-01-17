@@ -1,0 +1,8 @@
+20:07:24 - INFO - --- STARTING TEST: test_plots_rubenchik ---
+20:07:24 - INFO - Logs saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\logs\test_plots_rubenchik.log
+20:07:24 - INFO - Images will be saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output
+20:07:24 - INFO - Testing Rubenchik with parameters: P=200.0W, v=1.0m/s, a=50.0um
+20:07:24 - INFO - Generating Rubenchik Top View...
+20:07:33 - INFO -  [PASS] Saved to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\rubenchik_top_view.png
+20:07:33 - INFO - Generating Rubenchik Side View...
+20:07:38 - INFO -  [PASS] Saved to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\rubenchik_side_view.png
