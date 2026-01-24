@@ -16,7 +16,7 @@ from .physics import (
 
 ## ================ Eagar-Tsai Melt Pool Plots =============== ##
 
-def top_view_eagar_tsai(P, v, a, material, resolution=200):
+def top_view_eagar_tsai(P, v, a, material, resolution=200, remove_background=False):
     """
     Generates a top-down contour plot (XY plane) of the melt pool.
     Correctly scaled (1:1 aspect ratio) and centered on the melt pool.
@@ -52,9 +52,18 @@ def top_view_eagar_tsai(P, v, a, material, resolution=200):
 
     # 4. Plot
     fig, ax = plt.subplots(figsize=(8, 5))
-    contour = ax.contourf(X * 1e6, Y * 1e6, Z_temp, levels=50, cmap='inferno')
+
+    # --- NEW LOGIC START ---
+    # Determine what data to feed into the contourf (filled plot)
+    Z_plot = Z_temp
+    if remove_background:
+        # Mask values below melting temperature so they are not plotted (transparent)
+        Z_plot = np.ma.masked_less(Z_temp, material['T_m'])
+    # --- NEW LOGIC END ---
+
+    contour = ax.contourf(X * 1e6, Y * 1e6, Z_plot, levels=50, cmap='inferno')
     
-    # Draw Melt Pool Boundary (Tm)
+    # Draw Melt Pool Boundary (Tm) - We keep Z_temp here to ensure the line is continuous
     ax.contour(X * 1e6, Y * 1e6, Z_temp, levels=[material['T_m']], colors='cyan', linewidths=2, linestyles='--')
     
     # --- KEY IMPROVEMENTS ---
@@ -69,7 +78,7 @@ def top_view_eagar_tsai(P, v, a, material, resolution=200):
     
     return fig
 
-def side_view_eagar_tsai(P, v, a, material, resolution=200):
+def side_view_eagar_tsai(P, v, a, material, resolution=200, remove_background=False):
     """
     Generates a side-profile contour plot (XZ plane) of the melt pool.
     Correctly scaled (1:1 aspect ratio).
@@ -103,9 +112,17 @@ def side_view_eagar_tsai(P, v, a, material, resolution=200):
 
     # 4. Plot
     fig, ax = plt.subplots(figsize=(8, 5))
-    contour = ax.contourf(X * 1e6, Z * 1e6, Z_temp, levels=50, cmap='magma')
+
+    # --- NEW LOGIC START ---
+    Z_plot = Z_temp
+    if remove_background:
+        # Mask values below melting temperature
+        Z_plot = np.ma.masked_less(Z_temp, material['T_m'])
+    # --- NEW LOGIC END ---
+
+    contour = ax.contourf(X * 1e6, Z * 1e6, Z_plot, levels=50, cmap='magma')
     
-    # Draw Melt Boundary
+    # Draw Melt Boundary (using original Z_temp to keep the line smooth)
     ax.contour(X * 1e6, Z * 1e6, Z_temp, levels=[material['T_m']], colors='cyan', linewidths=2, linestyles='--')
     
     # --- KEY IMPROVEMENTS ---
@@ -119,12 +136,13 @@ def side_view_eagar_tsai(P, v, a, material, resolution=200):
     
     return fig
 
-def plot_process_grid_views(P_range, v_range, a, material, resolution=100):
+def plot_process_grid_views(P_range, v_range, a, material, resolution=100, remove_background=False):
     """
     Generates process window grid plots with ROBUST LIMIT DETECTION.
     - Pre-scans ALL combinations to find the exact global bounding box.
     - Ensures no clipping and minimal whitespace.
     - Dynamic figure sizing based on aspect ratio.
+    - Optional background removal to show only the melt pool.
     """
     Tm = material['T_m']
     n_P = len(P_range)
@@ -159,16 +177,25 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100):
                 )
                 global_peak_T = max(global_peak_T, -res_peak.fun)
 
-    # --- 2. DEFINE LIMITS & PADDING ---
-    pad_factor = 1.15 # 15% padding
+    # --- 2. DEFINE LIMITS & PADDING (IMPROVED CENTERING) ---
+    # Calculate the total span of the melt pool area
+    span_x = global_max_x - global_min_x
     
-    x_min, x_max = global_min_x * pad_factor, global_max_x * pad_factor
+    # Add 10% padding based on the SPAN, not the coordinate magnitude
+    # This prevents the "front" (x_max) from being crushed against the wall when it is close to 0
+    padding_x = span_x * 0.1
+    x_min = global_min_x - padding_x
+    x_max = global_max_x + padding_x
     
-    # Center Y on 0
-    y_min, y_max = -global_max_W/2 * pad_factor, global_max_W/2 * pad_factor
+    # Center Y on 0 with similar span-based padding
+    y_span = global_max_W
+    padding_y = y_span * 0.1
+    y_min = -(global_max_W/2) - padding_y
+    y_max = (global_max_W/2) + padding_y
     
-    # Z goes from negative depth to 0
-    z_min, z_max = -global_max_D * pad_factor, 0
+    # Z goes from negative depth to 0. Add padding to the bottom.
+    z_min = -global_max_D * 1.15 # simple scaling is okay for depth (starts at 0)
+    z_max = 0
     
     tlims = (300, global_peak_T * 1.05)
 
@@ -225,7 +252,11 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100):
                 for ci in range(resolution):
                     T_field[ri, ci] = eagar_tsai_temp(X_mesh_top[ri, ci], Y_mesh_top[ri, ci], 0, P, v, a, material)
             
-            last_contour = ax.contourf(X_mesh_top*1e6, Y_mesh_top*1e6, T_field, 
+            plot_data = T_field
+            if remove_background:
+                plot_data = np.ma.masked_less(T_field, Tm)
+
+            last_contour = ax.contourf(X_mesh_top*1e6, Y_mesh_top*1e6, plot_data, 
                                        levels=50, cmap='inferno', vmin=tlims[0], vmax=tlims[1])
             ax.contour(X_mesh_top*1e6, Y_mesh_top*1e6, T_field, 
                        levels=[Tm], colors='cyan', linewidths=1.5, linestyles='--')
@@ -239,8 +270,9 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100):
             if i == 0: ax.set_title(f"P={P:.0f}W")
 
     # Add single colorbar
-    cbar = fig_top.colorbar(last_contour, ax=axes_top, location='right', aspect=30)
-    cbar.set_label('Temperature (K)', fontsize=12)
+    if last_contour:
+        cbar = fig_top.colorbar(last_contour, ax=axes_top, location='right', aspect=30)
+        cbar.set_label('Temperature (K)', fontsize=12)
 
     # ================= SIDE VIEW =================
     fig_side, axes_side = plt.subplots(nrows=n_v, ncols=n_P, 
@@ -265,7 +297,11 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100):
                 for ci in range(resolution):
                     T_field[ri, ci] = eagar_tsai_temp(X_mesh_side[ri, ci], 0, Z_mesh_side[ri, ci], P, v, a, material)
             
-            last_contour_side = ax.contourf(X_mesh_side*1e6, Z_mesh_side*1e6, T_field, 
+            plot_data = T_field
+            if remove_background:
+                plot_data = np.ma.masked_less(T_field, Tm)
+
+            last_contour_side = ax.contourf(X_mesh_side*1e6, Z_mesh_side*1e6, plot_data, 
                                             levels=50, cmap='magma', vmin=tlims[0], vmax=tlims[1])
             ax.contour(X_mesh_side*1e6, Z_mesh_side*1e6, T_field, 
                        levels=[Tm], colors='cyan', linewidths=1.5, linestyles='--')
@@ -277,8 +313,9 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100):
             if j == 0: ax.set_ylabel(f"v={v*1000:.0f}mm/s\n\nZ (µm)")
             if i == 0: ax.set_title(f"P={P:.0f}W")
 
-    cbar_side = fig_side.colorbar(last_contour_side, ax=axes_side, location='right', aspect=30)
-    cbar_side.set_label('Temperature (K)', fontsize=12)
+    if last_contour_side:
+        cbar_side = fig_side.colorbar(last_contour_side, ax=axes_side, location='right', aspect=30)
+        cbar_side.set_label('Temperature (K)', fontsize=12)
 
     return fig_top, fig_side
 

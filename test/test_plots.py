@@ -14,17 +14,23 @@ from src.plots import (
     side_view_rubenchik
 )
 
+mock_material = {
+            "name": "NiTi",
+            "rho": 6100,
+            "C_p": 510,
+            "k": 4.4,
+            "T_b": 3033,
+            "T_m": 1583,
+            "A": 0.32,
+            "alpha": 8e-6
+            }
+
 def test_plot_generation():
     # 1. Setup Environment (Logs & Output Folder)
     logger, output_folder = setup_test_env("test_plots")
     
-    # 2. Define Mock Data (So we don't depend on loading external files)
-    mock_material = {
-        "name": "TestMaterial",
-        "A": 0.4, "k": 20.0, "alpha": 1.0e-5,
-        "rho": 4500.0, "C_p": 500.0, "T_m": 1900.0, "T_b": 3000.0
-    }
-    P, v, a = 200.0, 1.0, 50e-6
+    
+    P, v, a = 200.0, 1.0, 40e-6
 
     logger.info(f"Testing with parameters: P={P}W, v={v}m/s, a={a*1e6}um")
 
@@ -32,7 +38,7 @@ def test_plot_generation():
     logger.info("Generating Top View Plot...")
     try:
         # Calls the function with ALL required arguments
-        fig1 = top_view_eagar_tsai(P, v, a, mock_material, resolution=50)
+        fig1 = top_view_eagar_tsai(P, v, a, mock_material, resolution=200,remove_background=True)
         
         save_path = os.path.join(output_folder, "top_view_eagar_tsai.png")
         fig1.savefig(save_path)
@@ -44,7 +50,7 @@ def test_plot_generation():
     # --- Test 2: Side View ---
     logger.info("Generating Side View Plot...")
     try:
-        fig2 = side_view_eagar_tsai(P, v, a, mock_material, resolution=50)
+        fig2 = side_view_eagar_tsai(P, v, a, mock_material, resolution=200,remove_background=True)
         
         save_path = os.path.join(output_folder, "side_view_eagar_tsai.png")
         fig2.savefig(save_path)
@@ -58,12 +64,12 @@ def test_plot_generation():
     # --- Test 3: Defect Map ---
     logger.info("Generating Defect Map...")
     try:
-        x_range = (0.3, 3.0)
+        x_range = (0.35, 3.5)
         y_range = (50, 500)
         fixed_params = {'a': a}
         
         # CAPTURE THE RETURNED FIGURE
-        fig3 = plot_defect_map('v', 'P', x_range, y_range, fixed_params, mock_material, resolution=25)
+        fig3 = plot_defect_map('v', 'P', x_range, y_range, fixed_params, mock_material, resolution=40)
         
         save_path = os.path.join(output_folder, "defect_map.png")
         fig3.savefig(save_path)
@@ -78,13 +84,8 @@ def test_rubenchik_plots():
     # 1. Setup Environment
     logger, output_folder = setup_test_env("test_plots_rubenchik")
     
-    # 2. Define Mock Data
-    mock_material = {
-        "name": "TestMaterial",
-        "A": 0.4, "k": 20.0, "alpha": 1.0e-5,
-        "rho": 4500.0, "C_p": 500.0, "T_m": 1900.0, "T_b": 3000.0
-    }
-    P, v, a = 200.0, 1.0, 50e-6
+
+    P, v, a = 200.0, 1.0, 40e-6
 
     logger.info(f"Testing Rubenchik with parameters: P={P}W, v={v}m/s, a={a*1e6}um")
 
@@ -94,7 +95,7 @@ def test_rubenchik_plots():
         # Calls the function from src/plots.py
         fig1 = top_view_rubenchik(P, v, a, mock_material, resolution=50)
         
-        save_path = os.path.join(output_folder, "rubenchik_top_view.png")
+        save_path = os.path.join(output_folder, "top_view_rubenchik.png")
         fig1.savefig(save_path)
         plt.close(fig1) # Close memory
         logger.info(f" [PASS] Saved to {save_path}")
@@ -109,7 +110,7 @@ def test_rubenchik_plots():
         # Calls the function from src/plots.py
         fig2 = side_view_rubenchik(P, v, a, mock_material, resolution=50)
         
-        save_path = os.path.join(output_folder, "rubenchik_side_view.png")
+        save_path = os.path.join(output_folder, "side_view_rubenchik.png")
         fig2.savefig(save_path)
         plt.close(fig2)
         logger.info(f" [PASS] Saved to {save_path}")
@@ -123,16 +124,12 @@ def test_grid_view():
     """Runs the NEW Grid Process Map test."""
     logger, output_folder = setup_test_env("test_plots_grid")
     
-    mock_material = {
-        "name": "TestMaterial",
-        "A": 0.4, "k": 20.0, "alpha": 1.0e-5,
-        "rho": 4500.0, "C_p": 500.0, "T_m": 1900.0, "T_b": 3000.0
-    }
-    a = 50e-6
+
+    a = 40e-6
     
     # Define Process Window
-    P_range = [150.0, 250.0, 350.0]
-    v_range = [1.5, 1.0, 0.5] # Descending velocity for rows
+    P_range = [50, 88.9, 158.1, 281.2, 500]
+    v_range = [0.35, 0.62, 1.11, 1.97, 3.5] # Descending velocity for rows
     
     logger.info(">>> Generating Grid Views (Top & Side)...")
     logger.info(f"Powers: {P_range}")
@@ -140,7 +137,7 @@ def test_grid_view():
 
     try:
         # Lower resolution (60) for faster testing
-        fig_top, fig_side = plot_process_grid_views(P_range, v_range, a, mock_material, resolution=60)
+        fig_top, fig_side = plot_process_grid_views(P_range, v_range, a, mock_material, resolution=80, remove_background=True)
         
         top_path = os.path.join(output_folder, "grid_view_top.png")
         side_path = os.path.join(output_folder, "grid_view_side.png")
@@ -161,4 +158,4 @@ def test_grid_view():
 if __name__ == "__main__":
     test_plot_generation()
     #test_grid_view()
-    test_rubenchik_plots()
+    #test_rubenchik_plots()

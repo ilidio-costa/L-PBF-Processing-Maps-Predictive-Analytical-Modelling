@@ -253,6 +253,121 @@ def get_eagar_tsai_dimensions(P, v, a, material, resolution=100):
     
     return (pre_factor * integral_val)
 
+def get_melt_pool_dimensions(P, v, a, material, melt_temp=None):
+    """
+    Highly efficient calculation of melt pool dimensions using 1D root-finding 
+    along principal axes instead of global surface optimization.
+    
+    Assumptions (Geometric Logic):
+    - Max Temperature occurs on the scan centerline (y=0, z=0).
+    - Max Depth occurs directly beneath the thermal peak (x=x_peak, y=0).
+    - Max Width occurs at the thermal peak cross-section (x=x_peak, z=0).
+    
+    Parameters:
+        P (float): Laser Power [W]
+        v (float): Scan Speed [m/s]
+        a (float): Beam Radius [m]
+        material (dict): Material properties
+        melt_temp (float, optional): Melting point. Defaults to material['T_m'].
+        
+    Returns:
+        tuple: (length, width, depth, x_tail, x_front)
+    """
+    # 0. Setup
+    
+    melt_temp = material['T_m']
+        
+    # Helper for cleaner root finding calls
+    def temp_diff(var, axis):
+        # axis 0=x, 1=y, 2=z
+        if axis == 0: return eagar_tsai_temp(var, 0, 0, P, v, a, material) - melt_temp
+        if axis == 1: return eagar_tsai_temp(x_peak, var, 0, P, v, a, material) - melt_temp
+        if axis == 2: return eagar_tsai_temp(x_peak, 0, var, P, v, a, material) - melt_temp
+
+    # --- 1. FIND PEAK LOCATION (x_peak) ---
+    # The thermal peak lags slightly behind the laser center (x=0) due to moving heat source.
+    # We search in a small window [-5a, a].
+    res_peak = minimize_scalar(
+        lambda x: -eagar_tsai_temp(x, 0, 0, P, v, a, material), 
+        bounds=(-5*a, a), 
+        method='bounded',
+        options={'xatol': 1e-7} # High precision for peak location
+    )
+    x_peak = res_peak.x
+    T_max = -res_peak.fun
+    
+    # Check if melting occurs
+    if T_max < melt_temp:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+
+    # --- 2. FIND LENGTH (x_tail to x_front) ---
+    # We search along the X-axis (y=0, z=0) for points where T = T_melt
+    
+    # Bracket for Front (Scanning direction, x > x_peak)
+    # We step forward until T < melt_temp
+    step = a
+    x_scan_fwd = x_peak + step
+    while eagar_tsai_temp(x_scan_fwd, 0, 0, P, v, a, material) > melt_temp:
+        x_scan_fwd += step
+        step *= 1.5
+    
+    try:
+        x_front = brentq(temp_diff, x_peak, x_scan_fwd, args=(0,))
+    except ValueError:
+        x_front = x_peak # Fallback if very small pool
+
+    # Bracket for Tail (Trailing edge, x < x_peak)
+    step = a
+    x_scan_bwd = x_peak - step
+    while eagar_tsai_temp(x_scan_bwd, 0, 0, P, v, a, material) > melt_temp:
+        x_scan_bwd -= step
+        step *= 1.5
+        
+    try:
+        x_tail = brentq(temp_diff, x_scan_bwd, x_peak, args=(0,))
+    except ValueError:
+        x_tail = x_peak
+
+    length = x_front - x_tail
+
+    # --- 3. FIND WIDTH (At x_peak) ---
+    # We search along the Y-axis at x=x_peak. The profile is symmetric, so we find +y.
+    # Bracket: y=0 (T=T_max) to y=large (T < T_melt)
+    
+    y_scan = a
+    step_y = a
+    # Quick expansion to find bracket
+    while eagar_tsai_temp(x_peak, y_scan, 0, P, v, a, material) > melt_temp:
+        y_scan += step_y
+        step_y *= 1.5
+
+    try:
+        y_edge = brentq(temp_diff, 0, y_scan, args=(1,))
+        width = y_edge * 2.0
+    except ValueError:
+        width = 0.0
+
+    # --- 4. FIND DEPTH (At x_peak) ---
+    # We search along the Z-axis (downwards) at x=x_peak.
+    # Bracket: z=0 (T=T_max) to z=negative_large.
+    # Note: eagar_tsai_temp handles z as signed coordinate? 
+    # Provided code often treats depth as absolute or negative. 
+    # Looking at provided s_func: "term_z = z**2...", so it is symmetric/insensitive to sign.
+    # We will search for z < 0.
+    
+    z_scan = -a
+    step_z = a
+    while eagar_tsai_temp(x_peak, 0, z_scan, P, v, a, material) > melt_temp:
+        z_scan -= step_z
+        step_z *= 1.5
+
+    try:
+        z_bottom = brentq(temp_diff, z_scan, 0, args=(2,))
+        depth = abs(z_bottom)
+    except ValueError:
+        depth = 0.0
+
+    return length, width, depth, x_tail, x_front
 ## ======================= Rubenchik Model ====================== ##
 
 def g_func(t, xi, yi, zi, p):
