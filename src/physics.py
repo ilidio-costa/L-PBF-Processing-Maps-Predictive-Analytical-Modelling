@@ -1,7 +1,6 @@
-from math import exp, pi, sqrt, log
 import numpy as np
-from scipy.integrate import quad
-from scipy.optimize import minimize_scalar, brentq
+from scipy.integrate import quad, fixed_quad
+from scipy.optimize import minimize_scalar, brentq, newton
 
 ## ======================= Eagar-Tsai Model ======================= ##
 
@@ -38,18 +37,19 @@ def s_func(s, x, y, z, v, alpha, a):
     
     return exp_val / denom_total
 
+def s_func_substituted(u, x, y, z, v, alpha, a):
+    """ Transformed Integrand: s = u^2 (Removes singularity) """
+    u = np.atleast_1d(u)
+    s = u**2
+    denom = 4 * alpha * s + a**2
+    term_z = z**2 / (4 * alpha * s) if z != 0 else np.zeros_like(s)
+    term_lat = (y**2 + (x + v * s)**2) / denom
+    return 2 * np.exp(-term_z - term_lat) / denom
+
 def eagar_tsai_temp(x, y, z, P, v, a, material):
     """
-    Calculates T using the original Eagar-Tsai formulation.
-    Robust at high speeds due to 'Smart Limits'.
-    x, y, z = Spatial coordinates
-    P = Laser Power [W]
-    v = Scan speed [m/s]
-    a = Laser beam radius [m]
-    material = Material properties dictionary
-    A_val = Absorptivity (0-1)
-    k = Thermal conductivity [W/m.K]
-    alpha = Thermal diffusivity [m^2/s]
+    Calculates T using the optimized u-substitution method.
+    Matches the methodology described in Report Section 4.4.
     """
     A_val = material['A']
     k = material['k']
@@ -58,35 +58,19 @@ def eagar_tsai_temp(x, y, z, P, v, a, material):
     # Pre-calculated constant factor
     pre_factor = (A_val * P / (np.pi * k)) * np.sqrt(alpha / np.pi)
 
-   # --- 1. FIND PEAK LOCATION ---
-    # The peak contribution occurs when the laser passes the point.
-    if x < 0:
-        s_peak = abs(x) / v
-        points_of_interest = [s_peak]
-    else:
-        s_peak = 0
-        points_of_interest = []
+    t_dwell = a / v
+    limit_time = 250 * t_dwell  # Limit in 's' (seconds)
+    
+    limit_u = np.sqrt(limit_time)
 
-    # --- 2. SMART UPPER LIMIT ---
-    # Stop integrating when heat dissipates. 
-    # Integrating to infinity causes "slowly convergent" warnings.
-    if s_peak > 0:
-        upper_limit = s_peak * 5.0 
-    else:
-        upper_limit = (a / v) * 10.0 
-        
-    upper_limit = max(upper_limit, 0.001) 
-
-    # --- 3. ROBUST INTEGRATION ---
-    # Start at 1e-9 instead of 0 to strictly avoid the 1/sqrt(s) singularity.
-    # This is numerically safe and physically accurate.
-    integral_val, error = quad(
-        s_func, 
-        1e-9,           # Lower limit > 0
-        upper_limit,    # Finite upper limit
+    # --- 3. ROBUST INTEGRATION (Gaussian Quadrature) --- s
+    # Note: We integrate from 0 to limit_u. The singularity at 0 is gone.
+    integral_val, _ = fixed_quad(
+        s_func_substituted, 
+        0,              # Lower limit is safely 0 now (smooth function)
+        limit_u,        # Corrected Upper Limit (sqrt)
         args=(x, y, z, v, alpha, a),
-        points=points_of_interest, 
-        limit=100
+        n=200            # 20 nodes gives machine precision
     )
     
     return (pre_factor * integral_val)
@@ -222,36 +206,6 @@ def get_eagar_tsai_dimensions(P, v, a, material, resolution=100):
     width = -res_w.fun
 
     return length, width, depth, x_tail, x_front
-    k = material['k']
-    alpha = material['alpha']
-    
-    pre_factor = (A * P / (np.pi * k)) * np.sqrt(alpha / np.pi)
-    
-    # Calculate peak location
-    integration_points = []
-    if x < 0:
-        # Peak is at s = |x|/v. Since s = tau^2, tau = sqrt(|x|/v)
-        tau_peak = np.sqrt(abs(x) / v)
-        integration_points = [tau_peak]
-
-    # FIX: Use a finite upper limit (e.g., 5.0) instead of np.inf
-    # tau = 5.0 corresponds to s = 25 seconds, which is effectively infinite for a melt pool
-    upper_limit = 10e9
-    
-    # Ensure our peak isn't beyond our limit (unlikely, but safe)
-    if integration_points and integration_points[0] > upper_limit:
-        upper_limit = integration_points[0] * 2.0
-
-    integral_val, _ = quad(
-        s_func_substituted, 
-        0, 
-        upper_limit,  # <--- CHANGED from np.inf
-        args=(x, y, z, v, alpha, a), 
-        points=integration_points, 
-        limit=100
-    )
-    
-    return (pre_factor * integral_val)
 
 def get_melt_pool_dimensions(P, v, a, material, melt_temp=None):
     """
@@ -368,6 +322,150 @@ def get_melt_pool_dimensions(P, v, a, material, melt_temp=None):
         depth = 0.0
 
     return length, width, depth, x_tail, x_front
+
+def get_melt_pool_dimensions_analytical(P, v, a, material, T_0=0):
+    """
+    Calculates melt pool dimensions using the Gradient-Based Newton-Raphson method 
+    described in Annex C of the Project Report.
+
+    References:
+        - Temperature Field: Annex A, Eq 33-35 [cite: 650]
+        - Gradients: Annex C, Eq 38, 40, 42 [cite: 667, 673, 680]
+        - Update Rules: Annex C, Eq 44-46 
+
+    Parameters:
+        P (float): Laser Power [W]
+        v (float): Scan Speed [m/s]
+        a (float): Beam Radius [m] (a = sqrt(2)*sigma)
+        material (dict): Properties {'rho', 'C_p', 'k', 'A', 'T_m'}
+        T_0 (float): Initial substrate temperature [K]
+
+    Returns:
+        tuple: (length, width, depth, x_tail, x_front)
+    """
+    
+    # --- 1. Material & Physical Constants ---
+    rho = material['rho']
+    Cp = material['C_p']
+    k = material['k']
+    A = material.get('A', 0.4) # Default absorptivity if missing
+    T_m = material['T_m']
+    
+    # Calculate Thermal Diffusivity alpha [m^2/s]
+    alpha = k / (rho * Cp) # [cite: 513]
+
+    # Pre-factor C for the integral (Annex C, Eq 34)
+    # C = (A * P / (pi * k)) * sqrt(alpha / pi)
+    C = (A * P / (np.pi * k)) * np.sqrt(alpha / np.pi) # [cite: 652]
+
+    # --- 2. Kernel Functions (Annex C, Eq 35 & Derivatives) ---
+    
+    def _integrand_common(s, xi, y, z):
+        """Base Gaussian kernel Phi(s) from Eq 35"""
+        denom_xy = 4 * alpha * s + a**2
+        denom_z = 4 * alpha * s
+        
+        # Avoid division by zero at s=0 for z term
+        if s == 0: return 0.0 
+        
+        # Exponent terms
+        exp_z = -(z**2) / denom_z
+        exp_xy = -((y**2 + (xi + v*s)**2) / denom_xy)
+        
+        return (1.0 / (denom_xy * np.sqrt(s))) * np.exp(exp_z + exp_xy)
+
+    def temperature(xi, y, z):
+        """Calculates T(xi, y, z) using Eq 33"""
+        val, _ = quad(lambda s: _integrand_common(s, xi, y, z), 0, np.inf)
+        return C * val + T_0
+
+    def dT_dxi(xi, y, z):
+        """Calculates dT/dxi using Eq 38"""
+        def integrand(s):
+            phi = _integrand_common(s, xi, y, z)
+            term = -2 * (xi + v*s) / (4 * alpha * s + a**2)
+            return phi * term
+        val, _ = quad(integrand, 0, np.inf)
+        return C * val
+
+    def dT_dy(xi, y, z):
+        """Calculates dT/dy using Eq 40"""
+        def integrand(s):
+            phi = _integrand_common(s, xi, y, z)
+            term = -2 * y / (4 * alpha * s + a**2)
+            return phi * term
+        val, _ = quad(integrand, 0, np.inf)
+        return C * val
+
+    def dT_dz(xi, y, z):
+        """Calculates dT/dz using Eq 42"""
+        def integrand(s):
+            if s == 0: return 0.0 # Singularity handling
+            phi = _integrand_common(s, xi, y, z)
+            term = -2 * z / (4 * alpha * s)
+            return phi * term
+        val, _ = quad(integrand, 0, np.inf)
+        return C * val
+
+    # --- 3. Newton-Raphson Solver Implementation (Annex C, Sec 3) ---
+
+    # Step 1: Locate Peak Temperature Location (xi_peak)
+    # Eq 43: Find xi where dT/dxi = 0
+    # Note: Using secant method (newton without fprime) on the derivative function
+    try:
+        # Start guess slightly behind laser (lag effect)
+        xi_peak = newton(lambda x: dT_dxi(x, 0, 0), x0=-a/2.0)
+    except RuntimeError:
+        xi_peak = 0.0
+
+    T_max = temperature(xi_peak, 0, 0)
+    
+    # Check if melting actually occurs
+    if T_max < T_m:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+
+    # Step 2: Calculate Melt Pool Width (W)
+    # Eq 44: Iterate y to find T = Tm at xi_peak
+    try:
+        # Guess: Start at beam radius 'a'
+        y_star = newton(lambda y: temperature(xi_peak, y, 0) - T_m, 
+                        x0=a, 
+                        fprime=lambda y: dT_dy(xi_peak, y, 0))
+        width = 2 * abs(y_star) # [cite: 691]
+    except RuntimeError:
+        width = 0.0
+
+    # Step 3: Calculate Melt Pool Depth (D)
+    # Eq 45: Iterate z to find T = Tm at xi_peak
+    try:
+        # Guess: Start at small depth, e.g., a/2. 
+        # Note: z must be non-zero to avoid singularity in derivative
+        z_star = newton(lambda z: temperature(xi_peak, 0, z) - T_m, 
+                        x0=a/2, 
+                        fprime=lambda z: dT_dz(xi_peak, 0, z))
+        depth = abs(z_star) # [cite: 695]
+    except RuntimeError:
+        depth = 0.0
+
+    # Step 4: Calculate Melt Pool Length (L)
+    # Eq 46: Find front and back roots along scan axis
+    try:
+        # Front: x > xi_peak
+        xi_front = newton(lambda x: temperature(x, 0, 0) - T_m, 
+                          x0=xi_peak + a, 
+                          fprime=lambda x: dT_dxi(x, 0, 0))
+        
+        # Back: x < xi_peak
+        xi_back = newton(lambda x: temperature(x, 0, 0) - T_m, 
+                         x0=xi_peak - a*2, 
+                         fprime=lambda x: dT_dxi(x, 0, 0))
+        
+        length = xi_front - xi_back # [cite: 701]
+    except RuntimeError:
+        length, xi_front, xi_back = 0.0, 0.0, 0.0
+
+    return length, width, depth, xi_back, xi_front
+
 ## ======================= Rubenchik Model ====================== ##
 
 def g_func(t, xi, yi, zi, p):

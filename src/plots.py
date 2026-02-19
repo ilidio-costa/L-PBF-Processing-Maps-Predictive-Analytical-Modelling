@@ -4,6 +4,7 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.optimize import minimize_scalar
 
+
 from .physics import (
     eagar_tsai_temp,        
     rubenchik_variables, 
@@ -151,7 +152,6 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100, remov
     print(f"[GRID] Pre-scanning {n_P * n_v} combinations for exact limits...")
 
     # --- 1. ROBUST LIMIT SEARCH (Scan All) ---
-    # Initialize with the beam radius as a safe minimum fallback
     global_min_x = -a 
     global_max_x = a
     global_max_W = a
@@ -160,62 +160,54 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100, remov
 
     for P in P_range:
         for v in v_range:
-            # Low resolution is fine for finding bounds (speed optimization)
             L, W, D, x_tail, x_front = get_eagar_tsai_dimensions(P, v, a, material, resolution=40)
             
-            # Update Global Extents
             if L > 0:
                 global_min_x = min(global_min_x, x_tail)
                 global_max_x = max(global_max_x, x_front)
                 global_max_W = max(global_max_W, W)
                 global_max_D = max(global_max_D, D)
                 
-                # Check Peak Temp (approximate is fine for colorbar max)
                 res_peak = minimize_scalar(
                     lambda x: -eagar_tsai_temp(x, 0, 0, P, v, a, material), 
                     bounds=(-5*a, a), method='bounded'
                 )
                 global_peak_T = max(global_peak_T, -res_peak.fun)
 
-    # --- 2. DEFINE LIMITS & PADDING (IMPROVED CENTERING) ---
-    # Calculate the total span of the melt pool area
+    # --- 2. DEFINE LIMITS & PADDING ---
     span_x = global_max_x - global_min_x
-    
-    # Add 10% padding based on the SPAN, not the coordinate magnitude
-    # This prevents the "front" (x_max) from being crushed against the wall when it is close to 0
     padding_x = span_x * 0.1
     x_min = global_min_x - padding_x
     x_max = global_max_x + padding_x
     
-    # Center Y on 0 with similar span-based padding
     y_span = global_max_W
     padding_y = y_span * 0.1
     y_min = -(global_max_W/2) - padding_y
     y_max = (global_max_W/2) + padding_y
     
-    # Z goes from negative depth to 0. Add padding to the bottom.
-    z_min = -global_max_D * 1.15 # simple scaling is okay for depth (starts at 0)
+    z_min = -global_max_D * 1.15
     z_max = 0
     
     tlims = (300, global_peak_T * 1.05)
+    
+    # 50 fixed temperature levels globally
+    global_levels = np.linspace(tlims[0], tlims[1], 50)
 
     # --- 3. DYNAMIC ASPECT RATIO & FIGURE SIZE ---
-    # Calculate physical size of the view window
     dx = x_max - x_min
     dy = y_max - y_min
     dz = abs(z_min)
     
-    # Aspect Ratios
     ratio_top = dy / dx
     ratio_side = dz / dx
     
-    # Base sizing: 3.5 inches wide per subplot
     subplot_w = 3.5
-    
-    # Calculate total figure height needed + room for titles/colorbar
     fig_w = n_P * subplot_w
-    fig_h_top = (n_v * subplot_w * ratio_top) + 1.5 
-    fig_h_side = (n_v * subplot_w * ratio_side) + 1.5
+    
+    # [FIX]: Guarantee at least 0.85 inches of height per row for BOTH views
+    min_row_height = 0.85 
+    fig_h_top = max((n_v * subplot_w * ratio_top), n_v * min_row_height) + 1.5 
+    fig_h_side = max((n_v * subplot_w * ratio_side), n_v * min_row_height) + 1.5
 
     print(f"[GRID] Limits: X[{x_min*1e6:.0f}:{x_max*1e6:.0f}]µm | W[{global_max_W*1e6:.0f}]µm")
     print(f"[GRID] Layout: Top Aspect {ratio_top:.2f}, Side Aspect {ratio_side:.2f}")
@@ -234,14 +226,11 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100, remov
                                      sharex=True, sharey=True,
                                      constrained_layout=True)
     
-    # Normalize axes array for 1x1, 1xN, Nx1 cases
     if n_v == 1 and n_P == 1: axes_top = np.array([[axes_top]])
     elif n_v == 1: axes_top = axes_top.reshape(1, -1)
     elif n_P == 1: axes_top = axes_top.reshape(-1, 1)
 
     fig_top.suptitle("Melt Pool Top Views (z=0) Process Map", fontsize=16)
-
-    last_contour = None
 
     for i, v in enumerate(v_range):
         for j, P in enumerate(P_range):
@@ -256,23 +245,23 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100, remov
             if remove_background:
                 plot_data = np.ma.masked_less(T_field, Tm)
 
-            last_contour = ax.contourf(X_mesh_top*1e6, Y_mesh_top*1e6, plot_data, 
-                                       levels=50, cmap='inferno', vmin=tlims[0], vmax=tlims[1])
+            ax.contourf(X_mesh_top*1e6, Y_mesh_top*1e6, plot_data, 
+                        levels=global_levels, cmap='inferno', 
+                        vmin=tlims[0], vmax=tlims[1], extend='both')
+            
             ax.contour(X_mesh_top*1e6, Y_mesh_top*1e6, T_field, 
                        levels=[Tm], colors='cyan', linewidths=1.5, linestyles='--')
             
             ax.set_aspect('equal')
             ax.grid(True, alpha=0.2)
             
-            # Only label outer edges
             if i == n_v - 1: ax.set_xlabel("X (µm)")
-            if j == 0: ax.set_ylabel(f"v={v*1000:.0f}mm/s\n\nY (µm)")
+            if j == 0: ax.set_ylabel(f"v={v*1000:.0f} mm/s\nY (µm)", labelpad=10)
             if i == 0: ax.set_title(f"P={P:.0f}W")
 
-    # Add single colorbar
-    if last_contour:
-        cbar = fig_top.colorbar(last_contour, ax=axes_top, location='right', aspect=30)
-        cbar.set_label('Temperature (K)', fontsize=12)
+    sm_top = plt.cm.ScalarMappable(cmap='inferno', norm=plt.Normalize(vmin=tlims[0], vmax=tlims[1]))
+    cbar = fig_top.colorbar(sm_top, ax=axes_top, location='right', aspect=30)
+    cbar.set_label('Temperature (K)', fontsize=12)
 
     # ================= SIDE VIEW =================
     fig_side, axes_side = plt.subplots(nrows=n_v, ncols=n_P, 
@@ -285,8 +274,6 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100, remov
     elif n_P == 1: axes_side = axes_side.reshape(-1, 1)
 
     fig_side.suptitle("Melt Pool Side Views (y=0) Process Map", fontsize=16)
-
-    last_contour_side = None
 
     for i, v in enumerate(v_range):
         for j, P in enumerate(P_range):
@@ -301,8 +288,10 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100, remov
             if remove_background:
                 plot_data = np.ma.masked_less(T_field, Tm)
 
-            last_contour_side = ax.contourf(X_mesh_side*1e6, Z_mesh_side*1e6, plot_data, 
-                                            levels=50, cmap='magma', vmin=tlims[0], vmax=tlims[1])
+            ax.contourf(X_mesh_side*1e6, Z_mesh_side*1e6, plot_data, 
+                        levels=global_levels, cmap='magma', 
+                        vmin=tlims[0], vmax=tlims[1], extend='both')
+            
             ax.contour(X_mesh_side*1e6, Z_mesh_side*1e6, T_field, 
                        levels=[Tm], colors='cyan', linewidths=1.5, linestyles='--')
             
@@ -310,16 +299,14 @@ def plot_process_grid_views(P_range, v_range, a, material, resolution=100, remov
             ax.grid(True, alpha=0.2)
             
             if i == n_v - 1: ax.set_xlabel("X (µm)")
-            if j == 0: ax.set_ylabel(f"v={v*1000:.0f}mm/s\n\nZ (µm)")
+            if j == 0: ax.set_ylabel(f"v={v*1000:.0f} mm/s\nZ (µm)", labelpad=10)
             if i == 0: ax.set_title(f"P={P:.0f}W")
 
-    if last_contour_side:
-        cbar_side = fig_side.colorbar(last_contour_side, ax=axes_side, location='right', aspect=30)
-        cbar_side.set_label('Temperature (K)', fontsize=12)
+    sm_side = plt.cm.ScalarMappable(cmap='magma', norm=plt.Normalize(vmin=tlims[0], vmax=tlims[1]))
+    cbar_side = fig_side.colorbar(sm_side, ax=axes_side, location='right', aspect=30)
+    cbar_side.set_label('Temperature (K)', fontsize=12)
 
     return fig_top, fig_side
-
-
 
 ## =============== Rubenchik Melt Pool Plots ================= ##
 

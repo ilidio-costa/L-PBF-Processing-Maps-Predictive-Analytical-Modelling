@@ -155,7 +155,74 @@ def test_grid_view():
         import traceback
         logger.error(traceback.format_exc())
 
+
+def test_grid_vs_individual_comparison():
+    """
+    NEW FUNCTION:
+    Generates the Grid View AND individual plots for each cell
+    to allow manual visual verification of consistency/physics.
+    """
+    logger, output_folder = setup_test_env("test_comparison_grid_vs_single")
+    
+    a = 40e-6
+    
+    # Define a smaller subset for specific comparison 
+    # (High variance in P and v to clearly see differences)
+    P_range = [88.9, 281.2]
+    v_range = [0.62, 1.97]
+    
+    logger.info(">>> Starting Comparison Test: Grid vs Individual")
+    logger.info(f"P_range: {P_range}")
+    logger.info(f"v_range: {v_range}")
+
+    # 1. Generate the Master Grid (The "Whole" picture)
+    logger.info("Step 1: Generating Master Grid Views...")
+    try:
+        fig_top, fig_side = plot_process_grid_views(
+            P_range, v_range, a, mock_material, resolution=60, remove_background=True
+        )
+        fig_top.savefig(os.path.join(output_folder, "MASTER_grid_top.png"), dpi=100)
+        fig_side.savefig(os.path.join(output_folder, "MASTER_grid_side.png"), dpi=100)
+        plt.close(fig_top)
+        plt.close(fig_side)
+        logger.info(" [PASS] Master Grids saved.")
+    except Exception as e:
+        logger.error(f" [FAIL] Grid generation failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return # Stop if grid fails
+
+    # 2. Generate Individual Plots for Comparison (The "Parts")
+    logger.info("Step 2: Generating Individual Plots for each cell...")
+    
+    count = 0
+    for P in P_range:
+        for v in v_range:
+            count += 1
+            logger.info(f" -> [{count}/{len(P_range)*len(v_range)}] Plotting P={P}, v={v}")
+            
+            # --- Top View ---
+            try:
+                fig = top_view_eagar_tsai(P, v, a, mock_material, resolution=60, remove_background=True)
+                fname = f"individual_top_P{int(P)}_v{v:.2f}.png"
+                fig.savefig(os.path.join(output_folder, fname))
+                plt.close(fig)
+            except Exception as e:
+                logger.error(f"    [FAIL] Top view P={P} v={v}: {e}")
+
+            # --- Side View ---
+            try:
+                fig = side_view_eagar_tsai(P, v, a, mock_material, resolution=60, remove_background=True)
+                fname = f"individual_side_P{int(P)}_v{v:.2f}.png"
+                fig.savefig(os.path.join(output_folder, fname))
+                plt.close(fig)
+            except Exception as e:
+                logger.error(f"    [FAIL] Side view P={P} v={v}: {e}")
+                
+    logger.info(f"Test Complete. Check '{output_folder}' to compare 'MASTER_grid' vs 'individual' files.")
+
 if __name__ == "__main__":
-    test_plot_generation()
-    #test_grid_view()
+    #test_plot_generation()
+    #test_grid_vs_individual_comparison()
+    test_grid_view()
     #test_rubenchik_plots()

@@ -1,0 +1,17 @@
+11:44:34 - INFO - --- STARTING TEST: algo_comparison ---
+11:44:34 - INFO - Logs saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\logs\algo_comparison.log
+11:44:34 - INFO - Images will be saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output
+11:44:34 - INFO - =====================================================================================
+11:44:34 - INFO - BENCHMARK: P=200.0W, v=1.0m/s, a=50.0um | Material: NiTi
+11:44:34 - INFO - =====================================================================================
+11:44:35 - INFO - METHOD               | LENGTH (um)  | WIDTH (um)   | DEPTH (um)   | TIME (ms)  | SPEEDUP 
+11:44:35 - INFO - -------------------------------------------------------------------------------------
+11:44:35 - INFO - Global Search        |       329.48 |       129.13 |        31.04 |     813.52 |     1.0x
+11:44:35 - INFO - 1D Heuristic         |       329.50 |       128.56 |        21.20 |     272.24 |     3.0x
+11:44:35 - INFO - Newton-Raphson       |         0.00 |         0.00 |         0.00 |       0.00 |     0.0x
+11:44:35 - INFO - -------------------------------------------------------------------------------------
+11:44:35 - INFO - Length Deviation (vs Global):
+11:44:35 - INFO -   > 1D Heuristic: 0.01%
+11:44:35 - INFO -   > Newton-Raphson: 100.00%
+11:44:35 - INFO - 
+[NOTE] Discrepancy > 1%. Global Search resolution might be too low, or gradients are more precise.

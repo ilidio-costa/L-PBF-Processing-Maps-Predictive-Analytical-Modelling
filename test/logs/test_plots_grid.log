@@ -1,8 +1,8 @@
-20:50:19 - INFO - --- STARTING TEST: test_plots_grid ---
-20:50:19 - INFO - Logs saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\logs\test_plots_grid.log
-20:50:19 - INFO - Images will be saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output
-20:50:19 - INFO - >>> Generating Grid Views (Top & Side)...
-20:50:19 - INFO - Powers: [50, 88.9, 158.1, 281.2, 500]
-20:50:19 - INFO - Velocities: [0.35, 0.62, 1.11, 1.97, 3.5]
-20:59:11 - INFO -  [PASS] Saved Grid Top View to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\grid_view_top.png
-20:59:11 - INFO -  [PASS] Saved Grid Side View to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\grid_view_side.png
+15:21:59 - INFO - --- STARTING TEST: test_plots_grid ---
+15:21:59 - INFO - Logs saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\logs\test_plots_grid.log
+15:21:59 - INFO - Images will be saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output
+15:21:59 - INFO - >>> Generating Grid Views (Top & Side)...
+15:21:59 - INFO - Powers: [50, 88.9, 158.1, 281.2, 500]
+15:21:59 - INFO - Velocities: [0.35, 0.62, 1.11, 1.97, 3.5]
+15:22:42 - INFO -  [PASS] Saved Grid Top View to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\grid_view_top.png
+15:22:42 - INFO -  [PASS] Saved Grid Side View to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\grid_view_side.png

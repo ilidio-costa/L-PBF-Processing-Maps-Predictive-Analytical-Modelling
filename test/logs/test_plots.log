@@ -1,10 +1,10 @@
-21:37:29 - INFO - --- STARTING TEST: test_plots ---
-21:37:29 - INFO - Logs saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\logs\test_plots.log
-21:37:29 - INFO - Images will be saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output
-21:37:29 - INFO - Testing with parameters: P=200.0W, v=1.0m/s, a=40.0um
-21:37:29 - INFO - Generating Top View Plot...
-21:38:32 - INFO -  [PASS] Saved to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\top_view_eagar_tsai.png
-21:38:32 - INFO - Generating Side View Plot...
-21:39:21 - INFO -  [PASS] Saved to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\side_view_eagar_tsai.png
-21:39:21 - INFO - Generating Defect Map...
-21:39:21 - INFO -  [PASS] Saved to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\defect_map.png
+09:55:13 - INFO - --- STARTING TEST: test_plots ---
+09:55:14 - INFO - Logs saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\logs\test_plots.log
+09:55:14 - INFO - Images will be saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output
+09:55:14 - INFO - Testing with parameters: P=200.0W, v=1.0m/s, a=40.0um
+09:55:14 - INFO - Generating Top View Plot...
+09:56:20 - INFO -  [PASS] Saved to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\top_view_eagar_tsai.png
+09:56:20 - INFO - Generating Side View Plot...
+09:57:21 - INFO -  [PASS] Saved to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\side_view_eagar_tsai.png
+09:57:21 - INFO - Generating Defect Map...
+09:57:22 - INFO -  [PASS] Saved to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\defect_map.png

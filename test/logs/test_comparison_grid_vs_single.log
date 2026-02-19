@@ -1,0 +1,14 @@
+10:25:26 - INFO - --- STARTING TEST: test_comparison_grid_vs_single ---
+10:25:26 - INFO - Logs saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\logs\test_comparison_grid_vs_single.log
+10:25:26 - INFO - Images will be saved to: c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output
+10:25:26 - INFO - >>> Starting Comparison Test: Grid vs Individual
+10:25:26 - INFO - P_range: [88.9, 281.2]
+10:25:26 - INFO - v_range: [0.62, 1.97]
+10:25:26 - INFO - Step 1: Generating Master Grid Views...
+10:26:12 - INFO -  [PASS] Master Grids saved.
+10:26:12 - INFO - Step 2: Generating Individual Plots for each cell...
+10:26:12 - INFO -  -> [1/4] Plotting P=88.9, v=0.62
+10:26:24 - INFO -  -> [2/4] Plotting P=88.9, v=1.97
+10:26:40 - INFO -  -> [3/4] Plotting P=281.2, v=0.62
+10:26:51 - INFO -  -> [4/4] Plotting P=281.2, v=1.97
+10:27:05 - INFO - Test Complete. Check 'c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output' to compare 'MASTER_grid' vs 'individual' files.
