@@ -4,39 +4,6 @@ from scipy.optimize import minimize_scalar, brentq, newton
 
 ## ======================= Eagar-Tsai Model ======================= ##
 
-def s_func(s, x, y, z, v, alpha, a):
-    """
-    Original Eagar-Tsai Integrand.
-    s = Time lag (t - t')
-    x, y, z = Spatial coordinates
-    v = Scan speed [m/s]
-    alpha = Thermal diffusivity [m^2/s]
-    a = Laser beam radius [m]
-    """
-    if z >0:
-        print("Warning: positive z depth in s_func")
-    
-    # 1. Denominator Terms
-    # The spreading of the beam: 4*alpha*s + a^2
-    denom_lateral = 4 * alpha * s + a**2
-    
-    # 2. Exponentials
-    # Vertical component (Z): exp(-z^2 / 4*alpha*s)
-    term_z = z**2 / (4 * alpha * s)
-    
-    # Lateral component (X, Y): 
-    # The source moves, so the center is at (x - v*s)
-    # Note: If x is positive ahead of the laser, (x-vs) is correct.
-    term_lateral = (y**2 + (x + v * s)**2) / denom_lateral
-    
-    exp_val = np.exp(-term_z - term_lateral)
-    
-    # 3. Final Combination
-    # Denominator includes sqrt(s) which is the source of the singularity
-    denom_total = denom_lateral * np.sqrt(s)
-    
-    return exp_val / denom_total
-
 def s_func_substituted(u, x, y, z, v, alpha, a):
     """ Transformed Integrand: s = u^2 (Removes singularity) """
     u = np.atleast_1d(u)
@@ -46,10 +13,10 @@ def s_func_substituted(u, x, y, z, v, alpha, a):
     term_lat = (y**2 + (x + v * s)**2) / denom
     return 2 * np.exp(-term_z - term_lat) / denom
 
-def eagar_tsai_temp(x, y, z, P, v, a, material):
+def eagar_tsai_temp(x, y, z, P, v, a, material, T_ambient=0):
     """
-    Calculates T using the optimized u-substitution method.
-    Matches the methodology described in Report Section 4.4.
+    Calculates T using the optimized u-substitution method 
+    with high-speed dynamic spatial boundaries (Fast Fixed Quad).
     """
     A_val = material['A']
     k = material['k']
@@ -58,24 +25,29 @@ def eagar_tsai_temp(x, y, z, P, v, a, material):
     # Pre-calculated constant factor
     pre_factor = (A_val * P / (np.pi * k)) * np.sqrt(alpha / np.pi)
 
-    t_dwell = a / v
-    limit_time = 250 * t_dwell  # Limit in 's' (seconds)
+    # --- 1. FAST-PASS UNDERFLOW FILTER ---
+    u_peak_guess = np.sqrt(max(0, -x / v) + (a / v))
+    max_val = float(np.squeeze(s_func_substituted(u_peak_guess, x, y, z, v, alpha, a)))
     
-    limit_u = np.sqrt(limit_time)
+    if max_val < 1e-20:
+        return T_ambient
+        
+    # --- 2. DYNAMIC INTEGRATION BOUNDARY ---
+    upper_calc_limit = np.sqrt((abs(x)/v) * 3 + (x**2+y**2+z**2)/(4*alpha) + 100*(a/v))
 
-    # --- 3. ROBUST INTEGRATION (Gaussian Quadrature) --- s
-    # Note: We integrate from 0 to limit_u. The singularity at 0 is gone.
+    # --- 3. ROBUST HIGH-SPEED INTEGRATION ---
+    from scipy.integrate import fixed_quad
     integral_val, _ = fixed_quad(
         s_func_substituted, 
-        0,              # Lower limit is safely 0 now (smooth function)
-        limit_u,        # Corrected Upper Limit (sqrt)
+        0.0, 
+        upper_calc_limit, 
         args=(x, y, z, v, alpha, a),
-        n=200            # 20 nodes gives machine precision
+        n=250  # Validated node count for optimal speed/accuracy ratio
     )
     
-    return (pre_factor * integral_val)
+    return (pre_factor * integral_val) + T_ambient
 
-def get_eagar_tsai_dimensions(P, v, a, material, resolution=100):
+def get_eagar_tsai_dimensions(P, v, a, material, T_ambient=0, resolution=100):
     """
     Calculates Melt Pool Dimensions by performing a global search for 
     max width and max depth along the melt pool length.
@@ -94,7 +66,7 @@ def get_eagar_tsai_dimensions(P, v, a, material, resolution=100):
     # --- 2. FIND PEAK & CHECK EXISTENCE ---
     # We first find the peak temperature on the surface centerline
     res_peak = minimize_scalar(
-        lambda x: -eagar_tsai_temp(x, 0, 0, P, v, a, material), 
+        lambda x: -eagar_tsai_temp(x, 0, 0, P, v, a, material, T_ambient=T_ambient), 
         bounds=(-5*a, a), 
         method='bounded',
         options={'xatol': tol}
@@ -107,13 +79,13 @@ def get_eagar_tsai_dimensions(P, v, a, material, resolution=100):
 
     # --- 3. DEFINE LENGTH BOUNDARIES (x_tail, x_front) ---
     # We solve T(x, 0, 0) = Tm to find the start and end of the pool
-    func_x = lambda x: eagar_tsai_temp(x, 0, 0, P, v, a, material) - Tm
+    func_x = lambda x: eagar_tsai_temp(x, 0, 0, P, v, a, material, T_ambient=T_ambient) - Tm
     
     # -- Find Front (Start) --
     step = a
     x_scan_fwd = x_peak + step
     # Scan forward until temp drops below Tm
-    while eagar_tsai_temp(x_scan_fwd, 0, 0, P, v, a, material) > Tm:
+    while eagar_tsai_temp(x_scan_fwd, 0, 0, P, v, a, material, T_ambient=T_ambient) > Tm:
         x_scan_fwd += step
         step *= 1.5
         if x_scan_fwd > x_peak + 0.1: break # Safety break
@@ -127,7 +99,7 @@ def get_eagar_tsai_dimensions(P, v, a, material, resolution=100):
     step = a
     x_scan_bwd = x_peak - step
     # Scan backward until temp drops below Tm
-    while eagar_tsai_temp(x_scan_bwd, 0, 0, P, v, a, material) > Tm:
+    while eagar_tsai_temp(x_scan_bwd, 0, 0, P, v, a, material, T_ambient=T_ambient) > Tm:
         x_scan_bwd -= step
         step *= 1.5
         if x_scan_bwd < x_peak - 0.1: break
@@ -144,16 +116,16 @@ def get_eagar_tsai_dimensions(P, v, a, material, resolution=100):
     
     def get_depth_at_x(x_loc):
         # If surface is below Tm, depth is 0
-        if eagar_tsai_temp(x_loc, 0, 0, P, v, a, material) < Tm:
+        if eagar_tsai_temp(x_loc, 0, 0, P, v, a, material, T_ambient=T_ambient) < Tm:
             return 0.0
         
         # Search vertically for T = Tm
-        func_z = lambda z: eagar_tsai_temp(x_loc, 0, z, P, v, a, material) - Tm
+        func_z = lambda z: eagar_tsai_temp(x_loc, 0, z, P, v, a, material, T_ambient=T_ambient) - Tm
         
         # Find bracket
         z_scan = -a
         step_z = a
-        while eagar_tsai_temp(x_loc, 0, z_scan, P, v, a, material) > Tm:
+        while eagar_tsai_temp(x_loc, 0, z_scan, P, v, a, material, T_ambient=T_ambient) > Tm:
             z_scan -= step_z
             step_z *= 1.5
             if z_scan < -0.01: break
@@ -177,15 +149,15 @@ def get_eagar_tsai_dimensions(P, v, a, material, resolution=100):
     # Find the widest point y_max along the entire length [x_tail, x_front]
 
     def get_width_at_x(x_loc):
-        if eagar_tsai_temp(x_loc, 0, 0, P, v, a, material) < Tm:
+        if eagar_tsai_temp(x_loc, 0, 0, P, v, a, material, T_ambient=T_ambient) < Tm:
             return 0.0
         
         # Search laterally for T = Tm
-        func_y = lambda y: eagar_tsai_temp(x_loc, y, 0, P, v, a, material) - Tm
+        func_y = lambda y: eagar_tsai_temp(x_loc, y, 0, P, v, a, material, T_ambient=T_ambient) - Tm
         
         y_scan = a
         step_y = a
-        while eagar_tsai_temp(x_loc, y_scan, 0, P, v, a, material) > Tm:
+        while eagar_tsai_temp(x_loc, y_scan, 0, P, v, a, material, T_ambient=T_ambient) > Tm:
             y_scan += step_y
             step_y *= 1.5
             if y_scan > 0.01: break
@@ -207,266 +179,11 @@ def get_eagar_tsai_dimensions(P, v, a, material, resolution=100):
 
     return length, width, depth, x_tail, x_front
 
-def get_melt_pool_dimensions(P, v, a, material, melt_temp=None):
-    """
-    Highly efficient calculation of melt pool dimensions using 1D root-finding 
-    along principal axes instead of global surface optimization.
-    
-    Assumptions (Geometric Logic):
-    - Max Temperature occurs on the scan centerline (y=0, z=0).
-    - Max Depth occurs directly beneath the thermal peak (x=x_peak, y=0).
-    - Max Width occurs at the thermal peak cross-section (x=x_peak, z=0).
-    
-    Parameters:
-        P (float): Laser Power [W]
-        v (float): Scan Speed [m/s]
-        a (float): Beam Radius [m]
-        material (dict): Material properties
-        melt_temp (float, optional): Melting point. Defaults to material['T_m'].
-        
-    Returns:
-        tuple: (length, width, depth, x_tail, x_front)
-    """
-    # 0. Setup
-    
-    melt_temp = material['T_m']
-        
-    # Helper for cleaner root finding calls
-    def temp_diff(var, axis):
-        # axis 0=x, 1=y, 2=z
-        if axis == 0: return eagar_tsai_temp(var, 0, 0, P, v, a, material) - melt_temp
-        if axis == 1: return eagar_tsai_temp(x_peak, var, 0, P, v, a, material) - melt_temp
-        if axis == 2: return eagar_tsai_temp(x_peak, 0, var, P, v, a, material) - melt_temp
-
-    # --- 1. FIND PEAK LOCATION (x_peak) ---
-    # The thermal peak lags slightly behind the laser center (x=0) due to moving heat source.
-    # We search in a small window [-5a, a].
-    res_peak = minimize_scalar(
-        lambda x: -eagar_tsai_temp(x, 0, 0, P, v, a, material), 
-        bounds=(-5*a, a), 
-        method='bounded',
-        options={'xatol': 1e-7} # High precision for peak location
-    )
-    x_peak = res_peak.x
-    T_max = -res_peak.fun
-    
-    # Check if melting occurs
-    if T_max < melt_temp:
-        return 0.0, 0.0, 0.0, 0.0, 0.0
-
-    # --- 2. FIND LENGTH (x_tail to x_front) ---
-    # We search along the X-axis (y=0, z=0) for points where T = T_melt
-    
-    # Bracket for Front (Scanning direction, x > x_peak)
-    # We step forward until T < melt_temp
-    step = a
-    x_scan_fwd = x_peak + step
-    while eagar_tsai_temp(x_scan_fwd, 0, 0, P, v, a, material) > melt_temp:
-        x_scan_fwd += step
-        step *= 1.5
-    
-    try:
-        x_front = brentq(temp_diff, x_peak, x_scan_fwd, args=(0,))
-    except ValueError:
-        x_front = x_peak # Fallback if very small pool
-
-    # Bracket for Tail (Trailing edge, x < x_peak)
-    step = a
-    x_scan_bwd = x_peak - step
-    while eagar_tsai_temp(x_scan_bwd, 0, 0, P, v, a, material) > melt_temp:
-        x_scan_bwd -= step
-        step *= 1.5
-        
-    try:
-        x_tail = brentq(temp_diff, x_scan_bwd, x_peak, args=(0,))
-    except ValueError:
-        x_tail = x_peak
-
-    length = x_front - x_tail
-
-    # --- 3. FIND WIDTH (At x_peak) ---
-    # We search along the Y-axis at x=x_peak. The profile is symmetric, so we find +y.
-    # Bracket: y=0 (T=T_max) to y=large (T < T_melt)
-    
-    y_scan = a
-    step_y = a
-    # Quick expansion to find bracket
-    while eagar_tsai_temp(x_peak, y_scan, 0, P, v, a, material) > melt_temp:
-        y_scan += step_y
-        step_y *= 1.5
-
-    try:
-        y_edge = brentq(temp_diff, 0, y_scan, args=(1,))
-        width = y_edge * 2.0
-    except ValueError:
-        width = 0.0
-
-    # --- 4. FIND DEPTH (At x_peak) ---
-    # We search along the Z-axis (downwards) at x=x_peak.
-    # Bracket: z=0 (T=T_max) to z=negative_large.
-    # Note: eagar_tsai_temp handles z as signed coordinate? 
-    # Provided code often treats depth as absolute or negative. 
-    # Looking at provided s_func: "term_z = z**2...", so it is symmetric/insensitive to sign.
-    # We will search for z < 0.
-    
-    z_scan = -a
-    step_z = a
-    while eagar_tsai_temp(x_peak, 0, z_scan, P, v, a, material) > melt_temp:
-        z_scan -= step_z
-        step_z *= 1.5
-
-    try:
-        z_bottom = brentq(temp_diff, z_scan, 0, args=(2,))
-        depth = abs(z_bottom)
-    except ValueError:
-        depth = 0.0
-
-    return length, width, depth, x_tail, x_front
-
-def get_melt_pool_dimensions_analytical(P, v, a, material, T_0=0):
-    """
-    Calculates melt pool dimensions using the Gradient-Based Newton-Raphson method 
-    described in Annex C of the Project Report.
-
-    References:
-        - Temperature Field: Annex A, Eq 33-35 [cite: 650]
-        - Gradients: Annex C, Eq 38, 40, 42 [cite: 667, 673, 680]
-        - Update Rules: Annex C, Eq 44-46 
-
-    Parameters:
-        P (float): Laser Power [W]
-        v (float): Scan Speed [m/s]
-        a (float): Beam Radius [m] (a = sqrt(2)*sigma)
-        material (dict): Properties {'rho', 'C_p', 'k', 'A', 'T_m'}
-        T_0 (float): Initial substrate temperature [K]
-
-    Returns:
-        tuple: (length, width, depth, x_tail, x_front)
-    """
-    
-    # --- 1. Material & Physical Constants ---
-    rho = material['rho']
-    Cp = material['C_p']
-    k = material['k']
-    A = material.get('A', 0.4) # Default absorptivity if missing
-    T_m = material['T_m']
-    
-    # Calculate Thermal Diffusivity alpha [m^2/s]
-    alpha = k / (rho * Cp) # [cite: 513]
-
-    # Pre-factor C for the integral (Annex C, Eq 34)
-    # C = (A * P / (pi * k)) * sqrt(alpha / pi)
-    C = (A * P / (np.pi * k)) * np.sqrt(alpha / np.pi) # [cite: 652]
-
-    # --- 2. Kernel Functions (Annex C, Eq 35 & Derivatives) ---
-    
-    def _integrand_common(s, xi, y, z):
-        """Base Gaussian kernel Phi(s) from Eq 35"""
-        denom_xy = 4 * alpha * s + a**2
-        denom_z = 4 * alpha * s
-        
-        # Avoid division by zero at s=0 for z term
-        if s == 0: return 0.0 
-        
-        # Exponent terms
-        exp_z = -(z**2) / denom_z
-        exp_xy = -((y**2 + (xi + v*s)**2) / denom_xy)
-        
-        return (1.0 / (denom_xy * np.sqrt(s))) * np.exp(exp_z + exp_xy)
-
-    def temperature(xi, y, z):
-        """Calculates T(xi, y, z) using Eq 33"""
-        val, _ = quad(lambda s: _integrand_common(s, xi, y, z), 0, np.inf)
-        return C * val + T_0
-
-    def dT_dxi(xi, y, z):
-        """Calculates dT/dxi using Eq 38"""
-        def integrand(s):
-            phi = _integrand_common(s, xi, y, z)
-            term = -2 * (xi + v*s) / (4 * alpha * s + a**2)
-            return phi * term
-        val, _ = quad(integrand, 0, np.inf)
-        return C * val
-
-    def dT_dy(xi, y, z):
-        """Calculates dT/dy using Eq 40"""
-        def integrand(s):
-            phi = _integrand_common(s, xi, y, z)
-            term = -2 * y / (4 * alpha * s + a**2)
-            return phi * term
-        val, _ = quad(integrand, 0, np.inf)
-        return C * val
-
-    def dT_dz(xi, y, z):
-        """Calculates dT/dz using Eq 42"""
-        def integrand(s):
-            if s == 0: return 0.0 # Singularity handling
-            phi = _integrand_common(s, xi, y, z)
-            term = -2 * z / (4 * alpha * s)
-            return phi * term
-        val, _ = quad(integrand, 0, np.inf)
-        return C * val
-
-    # --- 3. Newton-Raphson Solver Implementation (Annex C, Sec 3) ---
-
-    # Step 1: Locate Peak Temperature Location (xi_peak)
-    # Eq 43: Find xi where dT/dxi = 0
-    # Note: Using secant method (newton without fprime) on the derivative function
-    try:
-        # Start guess slightly behind laser (lag effect)
-        xi_peak = newton(lambda x: dT_dxi(x, 0, 0), x0=-a/2.0)
-    except RuntimeError:
-        xi_peak = 0.0
-
-    T_max = temperature(xi_peak, 0, 0)
-    
-    # Check if melting actually occurs
-    if T_max < T_m:
-        return 0.0, 0.0, 0.0, 0.0, 0.0
-
-    # Step 2: Calculate Melt Pool Width (W)
-    # Eq 44: Iterate y to find T = Tm at xi_peak
-    try:
-        # Guess: Start at beam radius 'a'
-        y_star = newton(lambda y: temperature(xi_peak, y, 0) - T_m, 
-                        x0=a, 
-                        fprime=lambda y: dT_dy(xi_peak, y, 0))
-        width = 2 * abs(y_star) # [cite: 691]
-    except RuntimeError:
-        width = 0.0
-
-    # Step 3: Calculate Melt Pool Depth (D)
-    # Eq 45: Iterate z to find T = Tm at xi_peak
-    try:
-        # Guess: Start at small depth, e.g., a/2. 
-        # Note: z must be non-zero to avoid singularity in derivative
-        z_star = newton(lambda z: temperature(xi_peak, 0, z) - T_m, 
-                        x0=a/2, 
-                        fprime=lambda z: dT_dz(xi_peak, 0, z))
-        depth = abs(z_star) # [cite: 695]
-    except RuntimeError:
-        depth = 0.0
-
-    # Step 4: Calculate Melt Pool Length (L)
-    # Eq 46: Find front and back roots along scan axis
-    try:
-        # Front: x > xi_peak
-        xi_front = newton(lambda x: temperature(x, 0, 0) - T_m, 
-                          x0=xi_peak + a, 
-                          fprime=lambda x: dT_dxi(x, 0, 0))
-        
-        # Back: x < xi_peak
-        xi_back = newton(lambda x: temperature(x, 0, 0) - T_m, 
-                         x0=xi_peak - a*2, 
-                         fprime=lambda x: dT_dxi(x, 0, 0))
-        
-        length = xi_front - xi_back # [cite: 701]
-    except RuntimeError:
-        length, xi_front, xi_back = 0.0, 0.0, 0.0
-
-    return length, width, depth, xi_back, xi_front
 
 ## ======================= Rubenchik Model ====================== ##
+
+
+
 
 def g_func(t, xi, yi, zi, p):
     """

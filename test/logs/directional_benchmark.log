@@ -1,0 +1,39 @@
+===================================================================
+       3D DIRECTIONAL BENCHMARK | Ti-6Al-4V | P=250.0W, v=0.8m/s
+===================================================================
+
+--- ORIENTATION: 1. Wake (-x) ---
+Method               | Time (s)   | Max Err (K)  | RMSE (K)   | Speedup
+--------------------------------------------------------------------------------
+1. Baseline (Stats)  | 4.1214     | 0.00         | 0.00       | 1.00x
+2. Adaptive Quad     | 1.1423     | 1.61e+01     | 2.42e+00   | 3.6x
+3. Fast Fixed Quad   | 0.0199     | 1.61e+01     | 2.42e+00   | 207.1x
+
+--- ORIENTATION: 2. Front (+x) ---
+Method               | Time (s)   | Max Err (K)  | RMSE (K)   | Speedup
+--------------------------------------------------------------------------------
+1. Baseline (Stats)  | 1.8401     | 0.00         | 0.00       | 1.00x
+2. Adaptive Quad     | 0.5820     | 1.24e+01     | 5.19e+00   | 3.2x
+3. Fast Fixed Quad   | 0.0159     | 1.24e+01     | 5.19e+00   | 115.9x
+
+--- ORIENTATION: 3. Side (+y) ---
+Method               | Time (s)   | Max Err (K)  | RMSE (K)   | Speedup
+--------------------------------------------------------------------------------
+1. Baseline (Stats)  | 1.9376     | 0.00         | 0.00       | 1.00x
+2. Adaptive Quad     | 0.6362     | 7.97e+00     | 2.65e+00   | 3.0x
+3. Fast Fixed Quad   | 0.0152     | 7.97e+00     | 2.65e+00   | 127.4x
+
+--- ORIENTATION: 4. Depth (-z) ---
+Method               | Time (s)   | Max Err (K)  | RMSE (K)   | Speedup
+--------------------------------------------------------------------------------
+1. Baseline (Stats)  | 2.4528     | 0.00         | 0.00       | 1.00x
+2. Adaptive Quad     | 0.9445     | 9.01e+00     | 2.03e+00   | 2.6x
+3. Fast Fixed Quad   | 0.0099     | 9.01e+00     | 2.03e+00   | 247.5x
+
+--- ORIENTATION: 5. Diagonal (-x, +y, -z) ---
+Method               | Time (s)   | Max Err (K)  | RMSE (K)   | Speedup
+--------------------------------------------------------------------------------
+1. Baseline (Stats)  | 1.7790     | 0.00         | 0.00       | 1.00x
+2. Adaptive Quad     | 0.6389     | 7.97e+00     | 1.09e+00   | 2.8x
+3. Fast Fixed Quad   | 0.0162     | 7.97e+00     | 1.09e+00   | 109.8x
+

@@ -1,32 +1,43 @@
->>> Running Integration Benchmark (Original vs. Optimized)...
-Computing Ground Truth using ORIGINAL s_func (limit=0.05s)...
-Ground Truth Value: 1.619202e+06
+===================================================================
+          COMPREHENSIVE INTEGRATION ALGORITHM BENCHMARK            
+===================================================================
 
-N     | Method               | Result       | Error %      | Time (µs) 
----------------------------------------------------------------------------
-5     | Original (s)         | 2.4498e-25   |  100.0000%   | 125.63
-5     | Optimized (u^2)      | 1.0516e+06   |   35.0515%   | 92.28
----------------------------------------------------------------------------
-10    | Original (s)         | 3.3972e-02   |  100.0000%   | 88.07
-10    | Optimized (u^2)      | 1.2223e+06   |   24.5120%   | 188.60
----------------------------------------------------------------------------
-20    | Original (s)         | 9.7537e+04   |   93.9762%   | 112.26
-20    | Optimized (u^2)      | 1.6948e+06   |    4.6660%   | 136.35
----------------------------------------------------------------------------
-50    | Original (s)         | 2.1197e+06   |   30.9093%   | 69.17
-50    | Optimized (u^2)      | 1.6194e+06   |    0.0128%   | 124.73
----------------------------------------------------------------------------
-100   | Original (s)         | 1.6019e+06   |    1.0669%   | 155.68
-100   | Optimized (u^2)      | 1.6192e+06   |    0.0001%   | 128.31
----------------------------------------------------------------------------
-200   | Original (s)         | 1.6236e+06   |    0.2690%   | 103.24
-200   | Optimized (u^2)      | 1.6192e+06   |    0.0000%   | 183.06
----------------------------------------------------------------------------
-500   | Original (s)         | 1.6193e+06   |    0.0043%   | 193.28
-500   | Optimized (u^2)      | 1.6192e+06   |    0.0000%   | 301.49
----------------------------------------------------------------------------
-1000  | Original (s)         | 1.6192e+06   |    0.0000%   | 187.90
-1000  | Optimized (u^2)      | 1.6192e+06   |    0.0000%   | 163.34
----------------------------------------------------------------------------
+--- TESTING MATERIAL: Al6061 ---
+Condition          | Method               | Time (s)   | Max Err (K)  | RMSE (K)   | Speedup
+-------------------------------------------------------------------------------------
+Low P, Slow v      | 1. Baseline (Stats)  | 2.6457     | 0.00         | 0.00       | 1.00x
+                   | 2. Adaptive Quad     | 1.0868     | 6.03e+00     | 1.07e+00   | 2.4x
+                   | 3. Fast Fixed Quad   | 0.0235     | 6.03e+00     | 1.07e+00   | 112.4x
+Nominal LPBF       | 1. Baseline (Stats)  | 2.6458     | 0.00         | 0.00       | 1.00x
+                   | 2. Adaptive Quad     | 0.7916     | 1.18e+01     | 1.98e+00   | 3.3x
+                   | 3. Fast Fixed Quad   | 0.0251     | 1.18e+01     | 1.98e+00   | 105.5x
+High P, Fast v     | 1. Baseline (Stats)  | 2.7797     | 0.00         | 0.00       | 1.00x
+                   | 2. Adaptive Quad     | 0.8824     | 1.25e+01     | 1.98e+00   | 3.1x
+                   | 3. Fast Fixed Quad   | 0.0178     | 1.25e+01     | 1.98e+00   | 156.0x
 
-Benchmark Plot saved to c:\Users\Ilidi\Documents\GitHub\L-PBF-Processing-Maps-Predictive-Analytical-Modelling\test\output\integration_benchmark.png
+--- TESTING MATERIAL: NiTi ---
+Condition          | Method               | Time (s)   | Max Err (K)  | RMSE (K)   | Speedup
+-------------------------------------------------------------------------------------
+Low P, Slow v      | 1. Baseline (Stats)  | 3.6532     | 0.00         | 0.00       | 1.00x
+                   | 2. Adaptive Quad     | 0.9945     | 1.27e+02     | 1.88e+01   | 3.7x
+                   | 3. Fast Fixed Quad   | 0.0150     | 1.27e+02     | 1.88e+01   | 243.2x
+Nominal LPBF       | 1. Baseline (Stats)  | 4.3599     | 0.00         | 0.00       | 1.00x
+                   | 2. Adaptive Quad     | 1.3251     | 1.04e+02     | 1.50e+01   | 3.3x
+                   | 3. Fast Fixed Quad   | 0.0207     | 1.04e+02     | 1.50e+01   | 210.7x
+High P, Fast v     | 1. Baseline (Stats)  | 4.2681     | 0.00         | 0.00       | 1.00x
+                   | 2. Adaptive Quad     | 1.3716     | 5.08e+01     | 7.17e+00   | 3.1x
+                   | 3. Fast Fixed Quad   | 0.0178     | 5.08e+01     | 7.17e+00   | 239.4x
+
+--- TESTING MATERIAL: Ti64 ---
+Condition          | Method               | Time (s)   | Max Err (K)  | RMSE (K)   | Speedup
+-------------------------------------------------------------------------------------
+Low P, Slow v      | 1. Baseline (Stats)  | 4.0649     | 0.00         | 0.00       | 1.00x
+                   | 2. Adaptive Quad     | 1.2758     | 1.88e+01     | 2.61e+00   | 3.2x
+                   | 3. Fast Fixed Quad   | 0.0157     | 1.88e+01     | 2.61e+00   | 258.3x
+Nominal LPBF       | 1. Baseline (Stats)  | 4.3810     | 0.00         | 0.00       | 1.00x
+                   | 2. Adaptive Quad     | 1.4025     | 1.68e+01     | 2.22e+00   | 3.1x
+                   | 3. Fast Fixed Quad   | 0.0159     | 1.68e+01     | 2.22e+00   | 275.1x
+High P, Fast v     | 1. Baseline (Stats)  | 4.7441     | 0.00         | 0.00       | 1.00x
+                   | 2. Adaptive Quad     | 1.6025     | 2.19e+03     | 5.57e+02   | 3.0x
+                   | 3. Fast Fixed Quad   | 0.0158     | 2.19e+03     | 5.56e+02   | 300.2x
+
