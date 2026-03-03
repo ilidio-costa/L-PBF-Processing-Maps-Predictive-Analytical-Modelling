@@ -1,167 +1,130 @@
-import time
-import numpy as np
 import sys
 import os
-from scipy.integrate import quad
-from scipy.optimize import newton
+import time
+import json
+import numpy as np
+import matplotlib.pyplot as plt
 import logging
 
-# --- FIX: Add Project Root to Path ---
-# This allows importing from 'src' even if running from 'test/'
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.append(project_root)
+# --- Setup Paths ---
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(BASE_DIR)
 
-# --- Setup Logger ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger()
+# Import the updated models from your physics engine
+from src.physics import (
+    eagar_tsai_temp, get_eagar_tsai_dimensions,
+    rubenchik_variables, rubenchik_temp, get_rubenchik_dimensions
+)
 
-# --- Import Existing Functions ---
-try:
-    from src.physics import get_eagar_tsai_dimensions, get_melt_pool_dimensions
-except ImportError:
-    logger.error(f"Could not import src.physics. Check that '{project_root}' contains a 'src' folder.")
-    raise
+# --- Setup Logging & Output ---
+log_dir = os.path.join(BASE_DIR, 'test', 'logs')
+out_dir = os.path.join(BASE_DIR, 'test', 'output')
+os.makedirs(log_dir, exist_ok=True)
+os.makedirs(out_dir, exist_ok=True)
 
-# --- Improved Annex C Function (Robust Integration) ---
-def get_melt_pool_dimensions_analytical(P, v, a, material, T_0=298.15):
-    """
-    Robust Implementation of Annex C: Gradient-Based Newton-Raphson Solver.
-    """
-    rho = material['rho']
-    Cp = material['C_p']
-    k = material['k']
-    A = material['A']
-    T_m = material['T_m']
-    alpha = material['alpha']
+log_file = os.path.join(log_dir, 'analytical_comparison.log')
+with open(log_file, 'w'): pass  # Clear old log
 
-    # Pre-factor C (Eq 34)
-    C = (A * P / (np.pi * k)) * np.sqrt(alpha / np.pi)
+logging.basicConfig(filename=log_file, level=logging.INFO, format='%(message)s')
 
-    # --- Robust Integration Logic ---
-    # Calculate a safe upper limit for integration (when T decays to ~0)
-    limit_s = (a**2 / alpha) * 10.0
-    
-    def robust_quad(func):
-        # Start at 1e-9 to avoid singularity at s=0
-        val, _ = quad(func, 1e-9, limit_s, points=[a/v], limit=100)
-        return val
-
-    # --- Kernel Functions (Eq 35 & Derivatives) ---
-    def _integrand_common(s, xi, y, z):
-        denom_xy = 4 * alpha * s + a**2
-        denom_z = 4 * alpha * s
+def load_ti64():
+    """Loads Ti64 from the materials folder and ensures alpha is calculated."""
+    mat_path = os.path.join(BASE_DIR, 'materials', 'Ti64.json')
+    if not os.path.exists(mat_path):
+        print(f"Error: Could not find material file at {mat_path}")
+        sys.exit(1)
         
-        exp_z = -(z**2) / denom_z
-        exp_xy = -((y**2 + (xi + v*s)**2) / denom_xy)
-        
-        return (1.0 / (denom_xy * np.sqrt(s))) * np.exp(exp_z + exp_xy)
+    with open(mat_path, 'r') as f:
+        mat = json.load(f)
+        if 'alpha' not in mat:
+            mat['alpha'] = mat['k'] / (mat['rho'] * mat['C_p'])
+        return mat
 
-    def temperature(xi, y, z): # Eq 33
-        return C * robust_quad(lambda s: _integrand_common(s, xi, y, z)) + T_0
+def run_comparison():
+    mat = load_ti64()
+    P, v, a = 250.0, 0.8, 40e-6
+    T_ambient = 293.15
 
-    def dT_dxi(xi, y, z): # Eq 38
-        def integrand(s):
-            phi = _integrand_common(s, xi, y, z)
-            term = -2 * (xi + v*s) / (4 * alpha * s + a**2)
-            return phi * term
-        return C * robust_quad(integrand)
+    logging.info("===================================================================")
+    logging.info(f"   EAGAR-TSAI vs RUBENCHIK COMPARISON | {mat['name']} | P={P}W, v={v}m/s")
+    logging.info("===================================================================\n")
 
-    def dT_dy(xi, y, z): # Eq 40
-        def integrand(s):
-            phi = _integrand_common(s, xi, y, z)
-            term = -2 * y / (4 * alpha * s + a**2)
-            return phi * term
-        return C * robust_quad(integrand)
-
-    def dT_dz(xi, y, z): # Eq 42
-        def integrand(s):
-            phi = _integrand_common(s, xi, y, z)
-            term = -2 * z / (4 * alpha * s)
-            return phi * term
-        return C * robust_quad(integrand)
-
-    # --- Newton-Raphson Solver ---
-    try:
-        # 1. Peak Location (Eq 43)
-        xi_peak = newton(lambda x: dT_dxi(x, 0, 0), x0=-a/2.0, tol=1e-6)
-        
-        if temperature(xi_peak, 0, 0) < T_m:
-            return 0.0, 0.0, 0.0, 0.0, 0.0
-
-        # 2. Width (Eq 44)
-        y_star = newton(lambda y: temperature(xi_peak, y, 0) - T_m, x0=a, 
-                        fprime=lambda y: dT_dy(xi_peak, y, 0), tol=1e-6)
-        width = 2 * abs(y_star)
-
-        # 3. Depth (Eq 45)
-        z_star = newton(lambda z: temperature(xi_peak, 0, z) - T_m, x0=a/2.0, 
-                        fprime=lambda z: dT_dz(xi_peak, 0, z), tol=1e-6)
-        depth = abs(z_star)
-
-        # 4. Length (Eq 46)
-        xi_front = newton(lambda x: temperature(x, 0, 0) - T_m, x0=xi_peak + a, 
-                          fprime=lambda x: dT_dxi(x, 0, 0), tol=1e-6)
-        xi_back = newton(lambda x: temperature(x, 0, 0) - T_m, x0=xi_peak - a*2, 
-                         fprime=lambda x: dT_dxi(x, 0, 0), tol=1e-6)
-        length = xi_front - xi_back
-
-        return length, width, depth, xi_back, xi_front
-
-    except RuntimeError:
-        return 0.0, 0.0, 0.0, 0.0, 0.0
-
-# --- Benchmark Logic ---
-def run_benchmark():
-    # Mock Material (NiTi)
-    material = {
-        "name": "NiTi", "rho": 6450.0, "C_p": 800.0, "k": 18.0, 
-        "T_m": 1583.0, "A": 0.32, "alpha": 3.48e-6
-    }
+    # -----------------------------------------------------------------------
+    # TEST 1: Spatial Temperature Profile
+    # -----------------------------------------------------------------------
+    logging.info("--- TEST 1: SPATIAL TEMPERATURE PROFILE (Wake to Front) ---")
+    x_vals = np.linspace(-1500e-6, 200e-6, 150)
     
-    P, v, a = 200.0, 1.0, 50e-6
-
-    logger.info("="*85)
-    logger.info(f"BENCHMARK V3: P={P}W, v={v}m/s, a={a*1e6}um | Material: {material['name']}")
-    logger.info("="*85)
-    
-    # 1. Global Search (Baseline)
+    # Run Eagar-Tsai
     t0 = time.time()
-    res_global = get_eagar_tsai_dimensions(P, v, a, material, resolution=150)
-    t_global = time.time() - t0
-    
-    # 2. 1D Heuristic (Current)
+    T_et = np.array([eagar_tsai_temp(x, 0, 0, P, v, a, mat, T_ambient) for x in x_vals])
+    time_et_prof = time.time() - t0
+
+    # Run Rubenchik
     t0 = time.time()
-    res_heuristic = get_melt_pool_dimensions(P, v, a, material)
-    t_heuristic = time.time() - t0
+    T_rub = []
+    for x in x_vals:
+        coords, B, p_val = rubenchik_variables(x, 0, 0, mat, P, v, a)
+        T_rub.append(rubenchik_temp(coords, B, p_val, mat, T_ambient))
+    T_rub = np.array(T_rub)
+    time_rub_prof = time.time() - t0
+
+    err_prof = np.abs(T_et - T_rub)
+    max_err_prof = np.max(err_prof)
+
+    logging.info(f"{'Model':<15} | {'Time (s)':<10} | {'Max Difference (K)':<20}")
+    logging.info("-" * 50)
+    logging.info(f"{'Eagar-Tsai':<15} | {time_et_prof:<10.4f} | {'-':<20}")
+    logging.info(f"{'Rubenchik':<15} | {time_rub_prof:<10.4f} | {max_err_prof:<20.4e}\n")
+
+    # -----------------------------------------------------------------------
+    # TEST 2: Melt Pool Dimensions Solvers
+    # -----------------------------------------------------------------------
+    logging.info("--- TEST 2: MELT POOL DIMENSION EXTRACTION ---")
     
-    # 3. Newton-Raphson (Improved)
     t0 = time.time()
-    res_newton = get_melt_pool_dimensions_analytical(P, v, a, material, T_0=298.15)
-    t_newton = time.time() - t0
+    L_et, W_et, D_et, tail_et, front_et = get_eagar_tsai_dimensions(P, v, a, mat, resolution=100)
+    time_et_dim = time.time() - t0
 
-    # Output
-    headers = f"{'METHOD':<20} | {'LENGTH (um)':<12} | {'WIDTH (um)':<12} | {'DEPTH (um)':<12} | {'TIME (ms)':<10} | {'SPEEDUP':<8}"
-    logger.info(headers)
-    logger.info("-" * 85)
+    t0 = time.time()
+    L_rub, W_rub, D_rub, tail_rub, front_rub = get_rubenchik_dimensions(P, v, a, mat, T_ambient, resolution=100)
+    time_rub_dim = time.time() - t0
+
+    logging.info(f"{'Model':<12} | {'Time (s)':<10} | {'Length (µm)':<12} | {'Width (µm)':<12} | {'Depth (µm)':<12}")
+    logging.info("-" * 65)
+    logging.info(f"{'Eagar-Tsai':<12} | {time_et_dim:<10.4f} | {L_et*1e6:<12.2f} | {W_et*1e6:<12.2f} | {D_et*1e6:<12.2f}")
+    logging.info(f"{'Rubenchik':<12} | {time_rub_dim:<10.4f} | {L_rub*1e6:<12.2f} | {W_rub*1e6:<12.2f} | {D_rub*1e6:<12.2f}")
     
-    def print_row(name, res, t, t_base):
-        l, w, d = res[0]*1e6, res[1]*1e6, res[2]*1e6
-        speedup = t_base / t if t > 0 else 0
-        logger.info(f"{name:<20} | {l:>12.2f} | {w:>12.2f} | {d:>12.2f} | {t*1000:>10.2f} | {speedup:>7.1f}x")
+    err_L = abs(L_et - L_rub) * 1e6
+    err_W = abs(W_et - W_rub) * 1e6
+    err_D = abs(D_et - D_rub) * 1e6
+    logging.info(f"{'Difference':<12} | {'-':<10} | {err_L:<12.2e} | {err_W:<12.2e} | {err_D:<12.2e}\n")
 
-    print_row("Global Search", res_global, t_global, t_global)
-    print_row("1D Heuristic", res_heuristic, t_heuristic, t_global)
-    print_row("Newton-Raphson", res_newton, t_newton, t_global)
+    # -----------------------------------------------------------------------
+    # PLOTTING
+    # -----------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(x_vals * 1e6, T_et, 'k-', linewidth=4, label="Eagar-Tsai (Physical)", alpha=0.6)
+    ax.plot(x_vals * 1e6, T_rub, 'r--', linewidth=2, label="Rubenchik (Dimensionless)")
+    
+    # Highlight the boundaries
+    ax.axhline(mat['T_m'], color='b', linestyle=':', label='Melting Temp ($T_m$)')
+    ax.axvspan(tail_et * 1e6, front_et * 1e6, color='grey', alpha=0.2, label='Melt Pool Length')
 
-    # Check Accuracy
-    err_newt = abs(res_newton[0] - res_global[0]) / (res_global[0] or 1) * 100
-    if err_newt < 1.0 and res_newton[0] > 0:
-        logger.info("\n[SUCCESS] Newton-Raphson works and matches Global Search!")
-    else:
-        logger.warning(f"\n[FAIL] Newton-Raphson still failing or deviant (Error: {err_newt:.2f}%)")
+    ax.set_title(f"Model Comparison: Eagar-Tsai vs Rubenchik\n{mat['name']}, P={P}W, v={v}m/s")
+    ax.set_xlabel("Distance from Laser Center, X (µm)")
+    ax.set_ylabel("Surface Temperature (K)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    plot_path = os.path.join(out_dir, 'analytical_comparison.png')
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=300)
+    plt.close()
 
-
+    print(f"\n>>> Comparison Complete!")
+    print(f">>> Log saved to: {log_file}")
+    print(f">>> Plot saved to: {plot_path}")
 
 if __name__ == "__main__":
-    run_benchmark()
+    run_comparison()

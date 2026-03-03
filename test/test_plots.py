@@ -1,228 +1,124 @@
-import matplotlib.pyplot as plt
+import sys
 import os
+import json
+import numpy as np
+import matplotlib.pyplot as plt
 
-# Import the setup function from your local utils
-from utils import setup_test_env
+# --- Setup Paths ---
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(BASE_DIR)
 
-# Import the functions to test
+# IMPORT THE NEW FUNCTION HERE
 from src.plots import (
-    top_view_eagar_tsai, 
-    side_view_eagar_tsai,
-    plot_process_grid_views,
-    plot_defect_map,
-    top_view_rubenchik,
-    side_view_rubenchik
+    top_view_eagar_tsai, side_view_eagar_tsai,
+    top_view_rubenchik, side_view_rubenchik,
+    plot_process_et_grid_views, plot_process_r_grid_views,
+    plot_melt_pool_dimensions
 )
 
-mock_material = {
-            "name": "NiTi",
-            "rho": 6100,
-            "C_p": 510,
-            "k": 4.4,
-            "T_b": 3033,
-            "T_m": 1583,
-            "A": 0.32,
-            "alpha": 8e-6
-            }
+# --- Setup Output Directory ---
+out_dir = os.path.join(BASE_DIR, 'test', 'output')
+os.makedirs(out_dir, exist_ok=True)
 
-def test_plot_generation():
-    # 1. Setup Environment (Logs & Output Folder)
-    logger, output_folder = setup_test_env("test_plots")
-    
-    
-    P, v, a = 200.0, 1.0, 40e-6
-
-    logger.info(f"Testing with parameters: P={P}W, v={v}m/s, a={a*1e6}um")
-
-    # --- Test 1: Top View ---
-    logger.info("Generating Top View Plot...")
-    try:
-        # Calls the function with ALL required arguments
-        fig1 = top_view_eagar_tsai(P, v, a, mock_material, resolution=200,remove_background=True)
+def load_test_material():
+    """Loads NiTi from the materials folder for testing."""
+    mat_path = os.path.join(BASE_DIR, 'materials', 'NiTi.json')
+    if not os.path.exists(mat_path):
+        print(f"Error: Could not find material file at {mat_path}")
+        sys.exit(1)
         
-        save_path = os.path.join(output_folder, "top_view_eagar_tsai.png")
-        fig1.savefig(save_path)
-        plt.close(fig1) # Close memory
-        logger.info(f" [PASS] Saved to {save_path}")
-    except Exception as e:
-        logger.error(f" [FAIL] Top view failed: {e}")
+    with open(mat_path, 'r') as f:
+        mat = json.load(f)
+        if 'alpha' not in mat:
+            mat['alpha'] = mat['k'] / (mat['rho'] * mat['C_p'])
+        return mat
 
-    # --- Test 2: Side View ---
-    logger.info("Generating Side View Plot...")
-    try:
-        fig2 = side_view_eagar_tsai(P, v, a, mock_material, resolution=200,remove_background=True)
-        
-        save_path = os.path.join(output_folder, "side_view_eagar_tsai.png")
-        fig2.savefig(save_path)
-        plt.close(fig2)
-        logger.info(f" [PASS] Saved to {save_path}")
-    except Exception as e:
-        logger.error(f" [FAIL] Side view failed: {e}")
-
-    
-
-    # --- Test 3: Defect Map ---
-    logger.info("Generating Defect Map...")
-    try:
-        x_range = (0.35, 3.5)
-        y_range = (50, 500)
-        fixed_params = {'a': a}
-        
-        # CAPTURE THE RETURNED FIGURE
-        fig3 = plot_defect_map('v', 'P', x_range, y_range, fixed_params, mock_material, resolution=40)
-        
-        save_path = os.path.join(output_folder, "defect_map.png")
-        fig3.savefig(save_path)
-        plt.close(fig3)
-        logger.info(f" [PASS] Saved to {save_path}")
-    except Exception as e:
-        logger.error(f" [FAIL] Defect map failed: {e}")
-
-
-def test_rubenchik_plots():
-    """Test for Rubenchik Top and Side View plots."""
-    # 1. Setup Environment
-    logger, output_folder = setup_test_env("test_plots_rubenchik")
-    
-
-    P, v, a = 200.0, 1.0, 40e-6
-
-    logger.info(f"Testing Rubenchik with parameters: P={P}W, v={v}m/s, a={a*1e6}um")
-
-    # --- Test 1: Rubenchik Top View ---
-    logger.info("Generating Rubenchik Top View...")
-    try:
-        # Calls the function from src/plots.py
-        fig1 = top_view_rubenchik(P, v, a, mock_material, resolution=50)
-        
-        save_path = os.path.join(output_folder, "top_view_rubenchik.png")
-        fig1.savefig(save_path)
-        plt.close(fig1) # Close memory
-        logger.info(f" [PASS] Saved to {save_path}")
-    except Exception as e:
-        logger.error(f" [FAIL] Rubenchik Top view failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-
-    # --- Test 2: Rubenchik Side View ---
-    logger.info("Generating Rubenchik Side View...")
-    try:
-        # Calls the function from src/plots.py
-        fig2 = side_view_rubenchik(P, v, a, mock_material, resolution=50)
-        
-        save_path = os.path.join(output_folder, "side_view_rubenchik.png")
-        fig2.savefig(save_path)
-        plt.close(fig2)
-        logger.info(f" [PASS] Saved to {save_path}")
-    except Exception as e:
-        logger.error(f" [FAIL] Rubenchik Side view failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-   
-
-def test_grid_view():
-    """Runs the NEW Grid Process Map test."""
-    logger, output_folder = setup_test_env("test_plots_grid")
-    
-
+def run_all_plot_tests():
+    mat = load_test_material()
     a = 40e-6
+    P_nominal, v_nominal = 250.0, 1.25
     
-    # Define Process Window
-    P_range = [50, 88.9, 158.1, 281.2, 500]
-    v_range = [0.35, 0.62, 1.11, 1.97, 3.5] # Descending velocity for rows
+    print("===================================================")
+    print("          TESTING PLOTTING CAPABILITIES")
+    print("===================================================\n")
+
+    # ---------------------------------------------------------
+    # 1. Single Melt Pool Views
+    # ---------------------------------------------------------
+    print("1/3 Generating Single Melt Pool Views...")
     
-    logger.info(">>> Generating Grid Views (Top & Side)...")
-    logger.info(f"Powers: {P_range}")
-    logger.info(f"Velocities: {v_range}")
-
-    try:
-        # Lower resolution (60) for faster testing
-        fig_top, fig_side = plot_process_grid_views(P_range, v_range, a, mock_material, resolution=80, remove_background=True)
-        
-        top_path = os.path.join(output_folder, "grid_view_top.png")
-        side_path = os.path.join(output_folder, "grid_view_side.png")
-        
-        fig_top.savefig(top_path, dpi=120)
-        fig_side.savefig(side_path, dpi=120)
-        
-        plt.close(fig_top)
-        plt.close(fig_side)
-        
-        logger.info(f" [PASS] Saved Grid Top View to {top_path}")
-        logger.info(f" [PASS] Saved Grid Side View to {side_path}")
-    except Exception as e:
-        logger.error(f" [FAIL] Grid generation failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-
-
-def test_grid_vs_individual_comparison():
-    """
-    NEW FUNCTION:
-    Generates the Grid View AND individual plots for each cell
-    to allow manual visual verification of consistency/physics.
-    """
-    logger, output_folder = setup_test_env("test_comparison_grid_vs_single")
+    # Eagar-Tsai
+    fig_et_top = top_view_eagar_tsai(P_nominal, v_nominal, a, mat)
+    fig_et_top.savefig(os.path.join(out_dir, 'test_et_top_view.png'), dpi=300)
+    plt.close(fig_et_top)
     
-    a = 40e-6
+    fig_et_side = side_view_eagar_tsai(P_nominal, v_nominal, a, mat)
+    fig_et_side.savefig(os.path.join(out_dir, 'test_et_side_view.png'), dpi=300)
+    plt.close(fig_et_side)  
+
+    # Rubenchik
+    fig_rub_top = top_view_rubenchik(P_nominal, v_nominal, a, mat)
+    fig_rub_top.savefig(os.path.join(out_dir, 'test_rub_top_view.png'), dpi=300)
+    plt.close(fig_rub_top)
     
-    # Define a smaller subset for specific comparison 
-    # (High variance in P and v to clearly see differences)
-    P_range = [88.9, 281.2]
-    v_range = [0.62, 1.97]
+    fig_rub_side = side_view_rubenchik(P_nominal, v_nominal, a, mat)
+    fig_rub_side.savefig(os.path.join(out_dir, 'test_rub_side_view.png'), dpi=300)
+    plt.close(fig_rub_side)
     
-    logger.info(">>> Starting Comparison Test: Grid vs Individual")
-    logger.info(f"P_range: {P_range}")
-    logger.info(f"v_range: {v_range}")
+    # ---------------------------------------------------------
+    # 2. Master Grid Views
+    # ---------------------------------------------------------
+    print("2/3 Generating Master Grid Views...")
+    P_list = [50, 89, 158, 281, 500]
+    v_list = [0.35, 0.62, 1.11, 1.97, 3.5]
 
-    # 1. Generate the Master Grid (The "Whole" picture)
-    logger.info("Step 1: Generating Master Grid Views...")
-    try:
-        fig_top, fig_side = plot_process_grid_views(
-            P_range, v_range, a, mock_material, resolution=60, remove_background=True
-        )
-        fig_top.savefig(os.path.join(output_folder, "MASTER_grid_top.png"), dpi=100)
-        fig_side.savefig(os.path.join(output_folder, "MASTER_grid_side.png"), dpi=100)
-        plt.close(fig_top)
-        plt.close(fig_side)
-        logger.info(" [PASS] Master Grids saved.")
-    except Exception as e:
-        logger.error(f" [FAIL] Grid generation failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return # Stop if grid fails
-
-    # 2. Generate Individual Plots for Comparison (The "Parts")
-    logger.info("Step 2: Generating Individual Plots for each cell...")
+    # Eagar-Tsai Grids
+    fig_old_et_grid_top, fig_old_et_grid_side = plot_process_et_grid_views(P_list, v_list, a, mat, 0, 100, True )
+    fig_old_et_grid_top.savefig(os.path.join(out_dir, 'test_old_et_MASTER_grid_top.png'), dpi=300)
+    fig_old_et_grid_side.savefig(os.path.join(out_dir, 'test_old_et_MASTER_grid_side.png'), dpi=300)
+    plt.close(fig_old_et_grid_top)
+    plt.close(fig_old_et_grid_side)
     
-    count = 0
-    for P in P_range:
-        for v in v_range:
-            count += 1
-            logger.info(f" -> [{count}/{len(P_range)*len(v_range)}] Plotting P={P}, v={v}")
-            
-            # --- Top View ---
-            try:
-                fig = top_view_eagar_tsai(P, v, a, mock_material, resolution=60, remove_background=True)
-                fname = f"individual_top_P{int(P)}_v{v:.2f}.png"
-                fig.savefig(os.path.join(output_folder, fname))
-                plt.close(fig)
-            except Exception as e:
-                logger.error(f"    [FAIL] Top view P={P} v={v}: {e}")
+    # Rubenchik Grids
+    fig_old_rub_grid_top, fig_old_rub_grid_side = plot_process_r_grid_views(P_list, v_list, a, mat, 0, 100, True)
+    fig_old_rub_grid_top.savefig(os.path.join(out_dir, 'test_old_rub_MASTER_grid_top.png'), dpi=300)
+    fig_old_rub_grid_side.savefig(os.path.join(out_dir, 'test_old_rub_MASTER_grid_side.png'), dpi=300)
+    plt.close(fig_old_rub_grid_top)
+    plt.close(fig_old_rub_grid_side)
 
-            # --- Side View ---
-            try:
-                fig = side_view_eagar_tsai(P, v, a, mock_material, resolution=60, remove_background=True)
-                fname = f"individual_side_P{int(P)}_v{v:.2f}.png"
-                fig.savefig(os.path.join(output_folder, fname))
-                plt.close(fig)
-            except Exception as e:
-                logger.error(f"    [FAIL] Side view P={P} v={v}: {e}")
-                
-    logger.info(f"Test Complete. Check '{output_folder}' to compare 'MASTER_grid' vs 'individual' files.")
+    # ---------------------------------------------------------
+    # 3. Melt Pool Dimension Contour Maps (Printability Maps)
+    # ---------------------------------------------------------
+    print("3/3 Generating Melt Pool Dimension Contour Maps...")
+    
+    x_var = 'v'
+    y_var = 'P'
+    x_range = (0.1, 3.5) # Scanning Velocity Range: 0.1 to 3.5 m/s
+    y_range = (50, 500)  # Laser Power Range: 50 to 500 W
+    fixed_params = {'a': a} # Fix the spot size radius
+    test_resolution = 20 # Keep resolution low to ensure the test runs quickly
 
-if __name__ == "__main__":
-    #test_plot_generation()
-    #test_grid_vs_individual_comparison()
-    test_grid_view()
-    #test_rubenchik_plots()
+    # Test Eagar-Tsai + Gladush-Smurov
+    print("    -> Plotting Eagar-Tsai Dimensions...")
+    fig_dims_et = plot_melt_pool_dimensions(
+        x_var, y_var, x_range, y_range, fixed_params, mat, 
+        use_rubenchik=False, use_gladush=False, resolution=test_resolution
+    )
+    fig_dims_et.savefig(os.path.join(out_dir, 'test_printability_map_ET.png'), dpi=300, bbox_inches='tight')
+    plt.close(fig_dims_et)
+
+    # Test Rubenchik + Gladush-Smurov
+    print("    -> Plotting Rubenchik Dimensions...")
+    fig_dims_rub = plot_melt_pool_dimensions(
+        x_var, y_var, x_range, y_range, fixed_params, mat, 
+        use_rubenchik=True, use_gladush=True, resolution=test_resolution
+    )
+    fig_dims_rub.savefig(os.path.join(out_dir, 'test_printability_map_RUB.png'), dpi=300, bbox_inches='tight')
+    plt.close(fig_dims_rub)
+
+
+    print("\n>>> ALL PLOTS GENERATED SUCCESSFULLY!")
+    print(f">>> Check the '{out_dir}' folder to view the output images.")
+
+if __name__ == '__main__':
+    run_all_plot_tests()
