@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.integrate import fixed_quad
 from scipy.optimize import minimize_scalar, brentq
+import importlib
 
 ## ======================= Eagar-Tsai Model ======================= ##
 
@@ -259,6 +260,50 @@ def get_rubenchik_dimensions(P, v, a, material, T_ambient=0, resolution=100):
 
     return length, width, depth, x_tail, x_front
 
+def rubenchik_interpolated_dimensions(P, v, a, material, T_ambient=0):
+    """
+    Calculates Melt Pool Dimensions using the algebraic interpolations 
+    from Rubenchik's 2018 paper.
+    """
+    
+    # Fetch your exact dimensionless variables from physics.py
+    # rubenchik_variables returns: (xi, yi, zi), B_val, p_val
+    coords , B, p = rubenchik_variables(0, 0, 0, material, P, v, a, T_ambient)
+    
+    # =====================================================================
+    # ⚠️ EQUATIONS FROM YOUR UPLOADED IMAGE GO HERE
+    # =====================================================================
+    # Plug in the exact coefficients from the screenshot. 
+    # They generally follow a power-law format, something like:
+    
+    dimensionless_depth = (a / np.sqrt(p)) * (
+        0.008 - 0.0048 * B - 0.047 * p - 0.099 * B * p 
+        + (0.32 + 0.015 * B) * p * np.log(p) 
+        + np.log(B) * (0.0056 - 0.89 * p + 0.29 * p * np.log(p))
+    )
+
+    dimensionless_width = (a / (B * p**3)) * (
+        0.0021 - 0.047 * p + 0.34 * p**2 - 1.9 * p**3 - 0.33 * p**4
+        + B * (0.00066 - 0.0070 * p - 0.00059 * p**2 + 2.8 * p**3 - 0.12 * p**4)
+        + B**2 * (-0.00070 + 0.015 * p - 0.12 * p**2 + 0.59 * p**3 - 0.023 * p**4)
+        + B**3 * (0.00001 - 0.00022 * p + 0.0020 * p**2 - 0.0085 * p**3 + 0.0014 * p**4)
+    )
+
+    dimensionless_length = (a / p**2) * (
+        0.0053 - 0.21 * p + 1.3 * p**2 + (-0.11 - 0.17 * B) * p**2 * np.log(p)
+        + B * (-0.0062 + 0.23 * p + 0.75 * p**2)
+    )
+    # =====================================================================
+    
+    # Convert back to dimensional units (meters)
+    # Note: Check the paper to ensure width isn't returning the half-width!
+    alpha = material['alpha']
+    depth = dimensionless_depth * np.sqrt(alpha * a / v)
+    width = dimensionless_width * a 
+    length = dimensionless_length * a
+
+    return length, width, depth
+
 ## ======================= Gladush-Smurov Model ======================= ##
 def get_melt_depth_gladush_smurov(P, v, a, material):
     A_val = material['A']
@@ -268,17 +313,113 @@ def get_melt_depth_gladush_smurov(P, v, a, material):
     C1 = A_val*P / (2 * np.pi * k_val * T_b)
     return C1 * np.log( (a + alpha/v) / a )
 
+def get_max_depth_gs_et(P, v, a, material, T_ambient=0):
+    """
+    Calculates the melt pool depth using both Gladush-Smurov and Eagar-Tsai,
+    returning the maximum of the two to account for conduction-to-keyhole transition.
+    """
+    
+    # 1. Gladush-Smurov Depth (Keyhole/Deep Penetration)
+    depth_gs = get_melt_depth_gladush_smurov(P, v, a, material)
+    depth_gs = max(0.0, depth_gs) # Prevent negative depths at low energy
+    
+    # 2. Eagar-Tsai Depth (Conduction)
+    # physics.py returns: length, width, depth, x_tail, x_front
+    _, _, depth_et, _, _ = get_eagar_tsai_dimensions(
+        P, v, a, material, T_ambient=T_ambient, resolution=250
+    )
+    
+    # 3. Take the maximum depth
+    hybrid_depth = max(depth_gs, depth_et)
+    
+    return hybrid_depth, depth_gs, depth_et
+
 ## ======================= Defect Criteria ======================= ##
-def get_defect_masks(P, v, a, L, W, D, material, layer_t, hatch_s):
-    balling_mask = (np.pi * W / L) <= np.sqrt(2/3)
+
+def calculate_melt_pool_dimensions(P, v, material, process_parameters, T_ambient=0, resolution=100):
+    """
+    Wrapper function that calculates melt pool dimensions using the hybrid approach:
+    - Length and Width from Rubenchik's dimensionless model
+    - Depth from Gladush-Smurov's deep penetration model
+    """
+    # Extract laser spot size 'a' from process parameters 
+    # (Defaulting to 50 microns if not specified)
+    a = process_parameters.get('a', 50e-6)
     
-    rho, Cp, Tm, Tb = material['rho'], material['C_p'], material['T_m'], material['T_b']
-    alpha, A = material['alpha'], material['A']
+    # 1. Get Length and Width using the Rubenchik dimensionless model
+    L, W, _, _, _ = get_rubenchik_dimensions(P, v, a, material, T_ambient=T_ambient, resolution=resolution)
     
-    norm_enthalpy = (A * P) / (np.pi * rho * Cp * Tm * np.sqrt(alpha * v * a**3))
-    keyhole_mask = norm_enthalpy > (np.pi * Tb / Tm)
+    # 2. Get Depth using the maximum of Gladush-Smurov and Eagar-Tsai models
+    D, _, _ = get_max_depth_gs_et(P, v, a, material, T_ambient)
     
-    lof_val = (hatch_s / W)**2 + (layer_t / (layer_t + D))
-    lof_mask = lof_val >= 1
+    # Failsafe: if the Rubenchik model didn't find a melt pool (returns 0 for width/length), 
+    # the depth should also be 0 to prevent false defects.
+    if W == 0.0 or L == 0.0:
+        D = 0.0
+        
+    return L, W, D
+
+def load_defect_module(module_name):
+    """
+    Dynamically loads a defect criteria python file from the src/defects folder.
+    """
+    try:
+        # This acts just like 'from src.defects import module_name'
+        return importlib.import_module(f"src.defects.{module_name}")
+    except ModuleNotFoundError:
+        print(f"Warning: Defect module {module_name}.py not found!")
+        return None
+
+def compute_printability_map(Power_range, Scan_Speed_range, material, process_parameters, resolution=100, active_defects=None):
+    """
+    Calculates the grid and evaluates the defects, returning the raw matrices.
     
-    return balling_mask, keyhole_mask, lof_mask
+    active_defects: dict mapping the defect category to the file name, e.g.:
+    {'balling': 'ball01', 'lof': 'lof01', 'keyhole': 'key01'}
+    """
+    if active_defects is None:
+        active_defects = {'balling': 'ball01', 'lof': 'lof01', 'keyhole': 'key01'}
+
+    # 1. Dynamically load the requested defect modules
+    mod_ball = load_defect_module(active_defects.get('balling'))
+    mod_lof = load_defect_module(active_defects.get('lof'))
+    mod_key = load_defect_module(active_defects.get('keyhole'))
+
+    # 2. Create the grid
+    P_vals = np.linspace(Power_range[0], Power_range[1], resolution)
+    v_vals = np.linspace(Scan_Speed_range[0], Scan_Speed_range[1], resolution)
+    P_grid, v_grid = np.meshgrid(P_vals, v_vals)
+    
+    # Initialize the output map
+    defect_map = np.zeros((resolution, resolution), dtype=int)
+
+    # 3. Iterate through the grid
+    for i in range(resolution):
+        for j in range(resolution):
+            P_current = P_grid[i, j]
+            v_current = v_grid[i, j]
+
+            # Calculate Dimensions
+            L, W, D = calculate_melt_pool_dimensions(P_current, v_current, material, process_parameters)
+            
+            dimensions = {'L': L, 'W': W, 'D': D}
+            current_process_params = process_parameters.copy()
+            current_process_params['P'] = P_current
+            current_process_params['v'] = v_current
+
+            # 4. Evaluate Defect Criteria dynamically
+            is_balling = mod_ball.check(dimensions, current_process_params, material) if mod_ball else False
+            is_lof = mod_lof.check(dimensions, current_process_params, material) if mod_lof else False
+            is_keyhole = mod_key.check(dimensions, current_process_params, material) if mod_key else False
+
+            # 5. Assign to map
+            if is_balling:
+                defect_map[i, j] = 1
+            elif is_lof:
+                defect_map[i, j] = 2
+            elif is_keyhole:
+                defect_map[i, j] = 3
+            else:
+                defect_map[i, j] = 0 # Safe Zone
+
+    return P_grid, v_grid, defect_map

@@ -1,8 +1,11 @@
 from annotated_types import T
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
+from matplotlib.colors import ListedColormap
+import matplotlib.patches as mpatches
+from mpl_toolkits.mplot3d import Axes3D
 from scipy.optimize import minimize_scalar
 import numpy as np
+from scipy.ndimage import gaussian_filter
 
 from .physics import (
     eagar_tsai_temp,
@@ -11,8 +14,9 @@ from .physics import (
     rubenchik_temp,
     get_rubenchik_dimensions,
     get_melt_depth_gladush_smurov,
-    get_defect_masks,
+    compute_printability_map,
 )
+
 
 ## ======================= Eagar-Tsai PLOTS ======================= ##
 
@@ -540,7 +544,7 @@ def plot_process_r_grid_views(P_range, v_range, a, material, T_ambient=0, resolu
 
 ## ============== Processing Map Melt Pool Dimension Plotting ================= ##
 
-def plot_melt_pool_dimensions(x_var, y_var, x_range, y_range, fixed_params, material, T_ambient=298, use_rubenchik=True, use_gladush=True, resolution=40):
+def plot_melt_pool_dimensions(x_var, y_var, x_range, y_range, fixed_params, material, T_ambient=0, use_rubenchik=True, use_gladush=True, use_max_gs_et=False, resolution=40):
     """
     Plots formatted contour maps for Melt Pool Length, Width, and Depth.
     Iterates over a grid of parameters and calculates dimensions using the chosen analytical models.
@@ -566,6 +570,8 @@ def plot_melt_pool_dimensions(x_var, y_var, x_range, y_range, fixed_params, mate
         If True, uses the Rubenchik model for Length and Width. If False, uses Eagar-Tsai. Default is True.
     use_gladush : bool, optional
         If True, uses the Gladush-Smurov model for Depth. If False, uses the base model chosen above. Default is True.
+    use_max_gs_et : bool, optional
+        If True, overrides `use_gladush` and calculates depth as the maximum between Gladush-Smurov and Eagar-Tsai.
     resolution : int, optional
         The number of points to calculate along each axis. Higher means smoother plots but slower calculation. Default is 40.
     """
@@ -596,13 +602,26 @@ def plot_melt_pool_dimensions(x_var, y_var, x_range, y_range, fixed_params, mate
             
             # Select Base Model (Length and Width)
             if use_rubenchik:
-                L, W, D, _, _ = get_rubenchik_dimensions(P, v, a, material, T_ambient, resolution=50)
+                L, W, D_base, _, _ = get_rubenchik_dimensions(P, v, a, material, T_ambient, resolution=50)
             else:
-                L, W, D, _, _ = get_eagar_tsai_dimensions(P, v, a, material, T_ambient, resolution=50)
+                L, W, D_base, _, _ = get_eagar_tsai_dimensions(P, v, a, material, T_ambient, resolution=50)
             
-            # Override Depth with Gladush-Smurov if requested
-            if use_gladush:
+            # Override Depth based on the selected criteria
+            if use_max_gs_et:
+                # Get Gladush-Smurov Keyhole Depth
+                D_gs = max(0.0, get_melt_depth_gladush_smurov(P, v, a, material))
+                # Get Eagar-Tsai Conduction Depth (re-use D_base if we already calculated ET)
+                if not use_rubenchik:
+                    D_et = D_base
+                else:
+                    _, _, D_et, _, _ = get_eagar_tsai_dimensions(P, v, a, material, T_ambient, resolution=50)
+                # Take the maximum envelope
+                D = max(D_gs, D_et)
+                
+            elif use_gladush:
                 D = get_melt_depth_gladush_smurov(P, v, a, material)
+            else:
+                D = D_base
                 
             # Store in grids (converted to microns immediately)
             L_grid[i, j] = L * 1e6
@@ -620,7 +639,13 @@ def plot_melt_pool_dimensions(x_var, y_var, x_range, y_range, fixed_params, mate
     y_label = get_label(y_var)
     
     model_name = "Rubenchik" if use_rubenchik else "Eagar-Tsai"
-    depth_name = "Gladush-Smurov" if use_gladush else model_name
+    
+    if use_max_gs_et:
+        depth_name = "Max(GS, ET)"
+    elif use_gladush:
+        depth_name = "Gladush-Smurov"
+    else:
+        depth_name = model_name
 
     titles = [f"Length ({model_name})", f"Width ({model_name})", f"Depth ({depth_name})"]
     data_to_plot = [L_grid, W_grid, D_grid]
@@ -647,97 +672,126 @@ def plot_melt_pool_dimensions(x_var, y_var, x_range, y_range, fixed_params, mate
     plt.tight_layout()
     return fig
 
+
 ## ==================== Deffect Criteria Plots ======================= ##
 
-def plot_defect_map(x_var, y_var, x_range, y_range, fixed_params, material, layer_t=40e-6, hatch_s=100e-6, resolution=150):
+def plot_deterministic_map(P_grid, v_grid, defect_map, material_name="Material"):
+    """
+    Plots the pre-computed defect map using Gaussian-smoothed contours.
+    """
+    fig, ax = plt.subplots(figsize=(8, 6))
     
-    # 1. Setup Grid & Mapping
-    x = np.linspace(x_range[0], x_range[1], resolution)
-    y = np.linspace(y_range[0], y_range[1], resolution)
-    X, Y = np.meshgrid(x, y)
+    # Define colors for each zone
+    colors = ['#140b34', '#f6d746', '#e55c30', '#84206b']
+    labels = ['Safe Zone', 'Balling', 'Lack of Fusion', 'Keyhole']
     
-    mapping = {x_var: X, y_var: Y}
-    for key, val in fixed_params.items():
-        mapping[key] = val
+    # Plot each category as an isolated smooth contour layer
+    for i, color in enumerate(colors):
+        # 1. Create the rigid binary mask
+        binary_mask = (defect_map == i).astype(float)
         
-    P, v, a = mapping['P'], mapping['v'], mapping['a']
-
-    # 2. Calculate Dimensions & Defect Masks
-    L, W, D = rubenchik_field(P, v, a, material, T_ambient=298)
-    is_balling, is_keyhole, is_lof = get_defect_masks(P, v, a, L, W, D, material, layer_t, hatch_s)
+        # 2. Apply a gentle blur to create a smooth gradient
+        # Adjust 'sigma' (0.5 to 1.5) to control how aggressive the smoothing is
+        smoothed_mask = gaussian_filter(binary_mask, sigma=1.0)
+        
+        # 3. Contour the smoothed mask exactly at the 50% threshold
+        ax.contourf(v_grid, P_grid, smoothed_mask, levels=[0.5, 2.0], colors=[color])
     
-    # 3. Define specific region masks for plotting
-    # Stable area (where no defects are True)
-    stable_mask = ~is_balling & ~is_keyhole & ~is_lof
+    # Formatting the plot
+    ax.set_title(f"L-PBF Printability Map: {material_name}\nDeterministic Defect Boundaries", fontsize=14)
+    ax.set_xlabel("Scanning Velocity, v (m/s)", fontsize=12)
+    ax.set_ylabel("Laser Power, P (W)", fontsize=12)
     
-    # Overlap masks (where 2 or more are True)
-    overlap_mask = (is_balling & is_keyhole) | (is_balling & is_lof) | (is_keyhole & is_lof)
-
-    # 4. Visualization Setup
-    fig, ax = plt.subplots(figsize=(10, 8))
+    # Create custom legend
+    legend_patches = [mpatches.Patch(color=colors[i], label=labels[i]) for i in range(4)]
     
-    # Define Colors
-    c_stable = 'green'
-    c_keyhole = 'red' 
-    c_lof = 'gold'     
-    c_balling = 'gray' 
+    # Move the legend outside the plot: 
+    # loc='center left' aligns the middle-left of the legend box 
+    # with the anchor point (1.05, 0.5), which is just outside the right edge.
+    ax.legend(handles=legend_patches, loc='center left', bbox_to_anchor=(1.05, 0.5), framealpha=0.9)
     
-    # --- Layer 1: Base Colors (Solid) ---
-    # We plot solid colors wherever a defect is present. 
-    # Overlaps will be painted over later, but this provides the background color.
-    # Using contourf with levels=[0.5, 1.5] isolates the boolean 'True' regions.
-    
-    # Plot Stable background
-    ax.contourf(X, Y, stable_mask, levels=[0.5, 1.5], colors=[c_stable])
-
-    # Plot solid regions for individual defects
-    ax.contourf(X, Y, is_keyhole, levels=[0.5, 1.5], colors=[c_keyhole], alpha=0.6)
-    ax.contourf(X, Y, is_lof, levels=[0.5, 1.5], colors=[c_lof], alpha=0.6)
-    ax.contourf(X, Y, is_balling, levels=[0.5, 1.5], colors=[c_balling], alpha=0.6)
-    
-    # --- Layer 2: Hatches for Overlaps ---
-    # We plot transparent patches with hatch patterns over the overlapping zones.
-    # Hatch intensity can be increased by repeating symbols (e.g., '///' vs '/')
-    
-    # General Overlap (e.g., Keyhole + Balling) -> Crosshatch 'XX'
-    ax.contourf(X, Y, is_keyhole & is_balling, levels=[0.5, 1.5], colors='none', hatches=['XX'])
-    
-    # General Overlap (e.g., LoF + others) -> Diagonal stripes '//'
-    # We exclude areas that are already crosshatched to avoid messy double-hatching
-    ax.contourf(X, Y, is_lof & (is_keyhole | is_balling) & ~(is_keyhole & is_balling), 
-                levels=[0.5, 1.5], colors='none', hatches=['//'])
-
-    # --- Formatting ---
-    ax.set_xlabel(f"{x_var} (m/s)" if x_var == 'v' else f"{x_var} (W)", fontsize=12)
-    ax.set_ylabel(f"{y_var} (W)" if y_var == 'P' else f"{y_var} (m/s)", fontsize=12)
-    ax.set_title(f"L-PBF Process Map (t={layer_t*1e6:.0f}μm, h={hatch_s*1e6:.0f}μm)", fontsize=14)
-    
-    # Create Custom Legend
-    legend_elements = [
-        Patch(facecolor=c_stable, edgecolor='gray', label='Stable Window'),
-        Patch(facecolor=c_keyhole, alpha=0.6, label='Keyhole Mode'),
-        Patch(facecolor=c_lof, alpha=0.6, label='Lack of Fusion'),
-        Patch(facecolor=c_balling, alpha=0.6, label='Balling (Unstable)'),
-        Patch(facecolor='none', edgecolor='black', hatch='XX', label='Overlap: Keyhole + Balling'),
-        Patch(facecolor='none', edgecolor='black', hatch='//', label='Overlap: LoF + Others'),
-    ]
-    ax.legend(handles=legend_elements, loc='best', frameon=True, fontsize=10)
-    
-    # Add thin contour lines for sharp boundaries
-    ax.contour(X, Y, is_keyhole, levels=[0.5], colors='k', linewidths=0.5)
-    ax.contour(X, Y, is_lof, levels=[0.5], colors='k', linewidths=0.5)
-    ax.contour(X, Y, is_balling, levels=[0.5], colors='k', linewidths=0.5)
-
+    # Update tight_layout to ensure it makes room for the new legend position
     plt.tight_layout()
+    
     return fig
 
+def plot_safe_zone_evolution(Power_range, Scan_Speed_range, material, base_process_parameters, z_var, z_values, resolution=100, active_defects=None):
+    """
+    Plots a 3D deterministic map showing the evolution of the Safe Zone.
+    The base Z-level shows the full defect map. Higher Z-levels show only
+    the safe zone translucently.
+    """
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # 1. Formatting Dictionary: Map variables to (Label, Scaling Factor)
+    # This keeps the math in SI units but the plot in friendly units.
+    format_map = {
+        'a': ('Laser Beam Radius, a (µm)', 1e6),
+        'T_ambient': ('Ambient Temperature, T (K)', 1.0),
+        'h': ('Hatch Spacing, h (µm)', 1e6),
+        't': ('Layer Thickness, t (µm)', 1e6)
+    }
+    # Default to a 1.0 scale and raw name if it's not in the dictionary
+    z_label, z_scale = format_map.get(z_var, (z_var, 1.0))
+    
+    # Sort z_values to ensure the base map is at the absolute bottom
+    z_values = sorted(z_values)
+    z_min_scaled = z_values[0] * z_scale
+    
+    # Colors and labels matching your deterministic map
+    colors_full = ['#140b34', '#f6d746', '#e55c30', '#84206b']
+    labels = ['Safe Zone', 'Balling', 'Lack of Fusion', 'Keyhole']
+    
+    for z_val in z_values:
+        # Scale the Z value strictly for the visual offset on the graph
+        z_plot_offset = z_val * z_scale
+        
+        # 2. Update the varying parameter (Math uses raw SI units!)
+        current_params = base_process_parameters.copy()
+        current_params[z_var] = z_val
+        
+        # 3. Compute the processing map for this specific Z-slice
+        P_grid, v_grid, defect_map = compute_printability_map(
+            Power_range, Scan_Speed_range, material, current_params, 
+            resolution=resolution, active_defects=active_defects
+        )
+        
+        # 4. Plot the Base Layer (Full Map)
+        if z_val == z_values[0]:
+            for i, color in enumerate(colors_full):
+                binary_mask = (defect_map == i).astype(float)
+                smoothed_mask = gaussian_filter(binary_mask, sigma=1.0)
+                
+                # Plot at the scaled offset
+                ax.contourf(v_grid, P_grid, smoothed_mask, levels=[0.5, 2.0], 
+                            colors=[color], alpha=0.9, zdir='z', offset=z_plot_offset)
+        
+        # 5. Plot Higher Layers (Safe Zone Only)
+        else:
+            binary_mask = (defect_map == 0).astype(float)
+            smoothed_mask = gaussian_filter(binary_mask, sigma=1.0)
+            
+            ax.contourf(v_grid, P_grid, smoothed_mask, levels=[0.5, 2.0], 
+                        colors=[colors_full[0]], alpha=0.35, zdir='z', offset=z_plot_offset)
 
-
-
-
-
-
-
+    # 6. Formatting the 3D Plot
+    title_name = z_label.split(',')[0] # Grab just the friendly name for the title
+    ax.set_title(f"Safe Zone Evolution vs {title_name}\nMaterial: {material['name']}", fontsize=14, pad=20)
+    ax.set_xlabel("Scanning Velocity, v (m/s)", fontsize=12, labelpad=10)
+    ax.set_ylabel("Laser Power, P (W)", fontsize=12, labelpad=10)
+    ax.set_zlabel(z_label, fontsize=12, labelpad=10)
+    
+    # Adjust Z-axis limits using the scaled values
+    ax.set_zlim(z_min_scaled, max(z_values) * z_scale * 1.05)
+    
+    # Add the legend
+    legend_patches = [mpatches.Patch(color=colors_full[i], label=labels[i]) for i in range(4)]
+    ax.legend(handles=legend_patches, loc='center left', bbox_to_anchor=(1.1, 0.5), framealpha=0.9)
+    
+    ax.view_init(elev=25, azim=-45)
+    
+    return fig
 
 ## ======================= Random PLOTS ======================= ##
 def gaussian_laser():

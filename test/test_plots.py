@@ -98,24 +98,32 @@ def run_all_plot_tests():
     fixed_params = {'a': a} # Fix the spot size radius
     test_resolution = 20 # Keep resolution low to ensure the test runs quickly
 
-    # Test Eagar-Tsai + Gladush-Smurov
+    # Test Eagar-Tsai
     print("    -> Plotting Eagar-Tsai Dimensions...")
     fig_dims_et = plot_melt_pool_dimensions(
         x_var, y_var, x_range, y_range, fixed_params, mat, 
-        use_rubenchik=False, use_gladush=False, resolution=test_resolution
+        use_rubenchik=False, use_gladush=False, use_max_gs_et=False, resolution=test_resolution
     )
-    fig_dims_et.savefig(os.path.join(out_dir, 'test_printability_map_ET.png'), dpi=300, bbox_inches='tight')
+    fig_dims_et.savefig(os.path.join(out_dir, 'test_dimension_map_ET.png'), dpi=300, bbox_inches='tight')
     plt.close(fig_dims_et)
 
     # Test Rubenchik + Gladush-Smurov
     print("    -> Plotting Rubenchik Dimensions...")
     fig_dims_rub = plot_melt_pool_dimensions(
         x_var, y_var, x_range, y_range, fixed_params, mat, 
-        use_rubenchik=True, use_gladush=True, resolution=test_resolution
+        use_rubenchik=True, use_gladush=True, use_max_gs_et=False, resolution=test_resolution
     )
-    fig_dims_rub.savefig(os.path.join(out_dir, 'test_printability_map_RUB.png'), dpi=300, bbox_inches='tight')
+    fig_dims_rub.savefig(os.path.join(out_dir, 'test_dimension_map_RUB.png'), dpi=300, bbox_inches='tight')
     plt.close(fig_dims_rub)
 
+    # Test Eagar-Tsai
+    print("    -> Plotting Eagar-Tsai Dimensions...")
+    fig_dims_et = plot_melt_pool_dimensions(
+        x_var, y_var, x_range, y_range, fixed_params, mat, 
+        use_rubenchik=False, use_gladush=False, use_max_gs_et=True, resolution=test_resolution
+    )
+    fig_dims_et.savefig(os.path.join(out_dir, 'test_dimension_map.png'), dpi=300, bbox_inches='tight')
+    plt.close(fig_dims_et)
 
     print("\n>>> ALL PLOTS GENERATED SUCCESSFULLY!")
     print(f">>> Check the '{out_dir}' folder to view the output images.")
