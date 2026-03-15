@@ -2,6 +2,7 @@ import numpy as np
 from scipy.integrate import fixed_quad
 from scipy.optimize import minimize_scalar, brentq
 import importlib
+from .data_loader import calculate_dynamic_absorptivity
 
 ## ======================= Eagar-Tsai Model ======================= ##
 
@@ -336,24 +337,21 @@ def get_max_depth_gs_et(P, v, a, material, T_ambient=0):
 
 ## ======================= Defect Criteria ======================= ##
 
-def calculate_melt_pool_dimensions(P, v, material, process_parameters, T_ambient=0, resolution=100):
+def calculate_melt_pool_dimensions(P, v, material, process_parameters, resolution=100):
     """
-    Wrapper function that calculates melt pool dimensions using the hybrid approach:
-    - Length and Width from Rubenchik's dimensionless model
-    - Depth from Gladush-Smurov's deep penetration model
+    Wrapper function that calculates melt pool dimensions using the hybrid approach.
     """
-    # Extract laser spot size 'a' from process parameters 
-    # (Defaulting to 50 microns if not specified)
+    # 1. EXTRACT FROM DICTIONARY: This is what links the sweep to the math!
     a = process_parameters.get('a', 50e-6)
+    T_ambient = process_parameters.get('T_ambient', 298.0) 
     
-    # 1. Get Length and Width using the Rubenchik dimensionless model
+    # 2. Get Length and Width using the Rubenchik dimensionless model
     L, W, _, _, _ = get_rubenchik_dimensions(P, v, a, material, T_ambient=T_ambient, resolution=resolution)
     
-    # 2. Get Depth using the maximum of Gladush-Smurov and Eagar-Tsai models
-    D, _, _ = get_max_depth_gs_et(P, v, a, material, T_ambient)
+    # 3. Get Depth using the maximum of Gladush-Smurov and Eagar-Tsai models
+    D, _, _ = get_max_depth_gs_et(P, v, a, material, T_ambient=T_ambient)
     
-    # Failsafe: if the Rubenchik model didn't find a melt pool (returns 0 for width/length), 
-    # the depth should also be 0 to prevent false defects.
+    # Failsafe: if the Rubenchik model didn't find a melt pool 
     if W == 0.0 or L == 0.0:
         D = 0.0
         
@@ -372,54 +370,67 @@ def load_defect_module(module_name):
 
 def compute_printability_map(Power_range, Scan_Speed_range, material, process_parameters, resolution=100, active_defects=None):
     """
-    Calculates the grid and evaluates the defects, returning the raw matrices.
+    Calculates the P-v grid and evaluates defect criteria, returning the raw spatial matrices.
     
-    active_defects: dict mapping the defect category to the file name, e.g.:
-    {'balling': 'ball01', 'lof': 'lof01', 'keyhole': 'key01'}
+    This function acts as the core engine for processing maps. It dynamically loads defect 
+    modules, computes melt pool dimensions for every (P, v) coordinate, and evaluates the 
+    defect boundaries.
+    
+    Dynamic Absorptivity (The Interceptor):
+    ---------------------------------------
+    If 'A' (direct absorptivity) or 'wavelength' (to calculate via Hagen-Rubens) are 
+    provided in the `process_parameters`, this function will temporarily override the 
+    material's default absorptivity. It uses a `local_material` copy to ensure the 
+    base JSON material dictionary is never permanently mutated.
     """
     if active_defects is None:
-        active_defects = {'balling': 'ball01', 'lof': 'lof01', 'keyhole': 'key01'}
+        active_defects = {'balling': 'ball01', 'lof': 'lof02', 'keyhole': 'key01'}
 
-    # 1. Dynamically load the requested defect modules
     mod_ball = load_defect_module(active_defects.get('balling'))
     mod_lof = load_defect_module(active_defects.get('lof'))
     mod_key = load_defect_module(active_defects.get('keyhole'))
+    
+    # =================================================================
+    # ABSORPTIVITY INTERCEPTOR
+    local_material = material.copy()
+    
+    if 'A' in process_parameters:
+        local_material['A'] = process_parameters['A']
+        
+    elif 'wavelength' in process_parameters and 'electrical_resistivity' in local_material:
+        local_material['A'] = calculate_dynamic_absorptivity(
+            process_parameters['wavelength'], 
+            local_material['electrical_resistivity']
+        )
+    # =================================================================
 
-    # 2. Create the grid
     P_vals = np.linspace(Power_range[0], Power_range[1], resolution)
     v_vals = np.linspace(Scan_Speed_range[0], Scan_Speed_range[1], resolution)
     P_grid, v_grid = np.meshgrid(P_vals, v_vals)
     
-    # Initialize the output map
     defect_map = np.zeros((resolution, resolution), dtype=int)
 
-    # 3. Iterate through the grid
     for i in range(resolution):
         for j in range(resolution):
             P_current = P_grid[i, j]
             v_current = v_grid[i, j]
 
-            # Calculate Dimensions
-            L, W, D = calculate_melt_pool_dimensions(P_current, v_current, material, process_parameters)
+            # Use local_material
+            L, W, D = calculate_melt_pool_dimensions(P_current, v_current, local_material, process_parameters)
             
             dimensions = {'L': L, 'W': W, 'D': D}
             current_process_params = process_parameters.copy()
             current_process_params['P'] = P_current
             current_process_params['v'] = v_current
 
-            # 4. Evaluate Defect Criteria dynamically
-            is_balling = mod_ball.check(dimensions, current_process_params, material) if mod_ball else False
-            is_lof = mod_lof.check(dimensions, current_process_params, material) if mod_lof else False
-            is_keyhole = mod_key.check(dimensions, current_process_params, material) if mod_key else False
+            # Use local_material
+            is_balling = mod_ball.check(dimensions, current_process_params, local_material) if mod_ball else False
+            is_lof = mod_lof.check(dimensions, current_process_params, local_material) if mod_lof else False
+            is_keyhole = mod_key.check(dimensions, current_process_params, local_material) if mod_key else False
 
-            # 5. Assign to map
-            if is_balling:
-                defect_map[i, j] = 1
-            elif is_lof:
-                defect_map[i, j] = 2
-            elif is_keyhole:
-                defect_map[i, j] = 3
-            else:
-                defect_map[i, j] = 0 # Safe Zone
+            if is_balling: defect_map[i, j] = 1
+            elif is_lof: defect_map[i, j] = 2
+            elif is_keyhole: defect_map[i, j] = 3
+            else: defect_map[i, j] = 0
 
     return P_grid, v_grid, defect_map

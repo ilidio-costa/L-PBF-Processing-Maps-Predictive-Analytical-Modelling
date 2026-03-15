@@ -725,13 +725,16 @@ def plot_safe_zone_evolution(Power_range, Scan_Speed_range, material, base_proce
     ax = fig.add_subplot(111, projection='3d')
     
     # 1. Formatting Dictionary: Map variables to (Label, Scaling Factor)
-    # This keeps the math in SI units but the plot in friendly units.
     format_map = {
         'a': ('Laser Beam Radius, a (µm)', 1e6),
         'T_ambient': ('Ambient Temperature, T (K)', 1.0),
         'h': ('Hatch Spacing, h (µm)', 1e6),
-        't': ('Layer Thickness, t (µm)', 1e6)
+        't': ('Layer Thickness, t (µm)', 1e6),
+        'A': ('Absorptivity, A (%)', 100.0),             
+        'wavelength': ('Laser Wavelength, λ (nm)', 1e9), 
+        'shape_factor': ('Powder Shape Factor', 1.0)     
     }
+    
     # Default to a 1.0 scale and raw name if it's not in the dictionary
     z_label, z_scale = format_map.get(z_var, (z_var, 1.0))
     
@@ -777,7 +780,7 @@ def plot_safe_zone_evolution(Power_range, Scan_Speed_range, material, base_proce
 
     # 6. Formatting the 3D Plot
     title_name = z_label.split(',')[0] # Grab just the friendly name for the title
-    ax.set_title(f"Safe Zone Evolution vs {title_name}\nMaterial: {material['name']}", fontsize=14, pad=20)
+    ax.set_title(f"Safe Zone Evolution vs {title_name}\nMaterial: {material.get('name', 'Unknown')}", fontsize=14, pad=20)
     ax.set_xlabel("Scanning Velocity, v (m/s)", fontsize=12, labelpad=10)
     ax.set_ylabel("Laser Power, P (W)", fontsize=12, labelpad=10)
     ax.set_zlabel(z_label, fontsize=12, labelpad=10)

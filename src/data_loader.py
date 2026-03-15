@@ -1,5 +1,6 @@
 import json
 import os
+import numpy as np
 
 def load_material(filename):
     """
@@ -35,3 +36,14 @@ def load_material(filename):
             raise
     
     return data
+
+def calculate_dynamic_absorptivity(wavelength, resistivity):
+    """
+    Calculates the laser absorptivity of a metallic surface 
+    using the simplified Hagen-Rubens approximation.
+    """
+    # Using the simplified equation A = 0.365 * sqrt(rho_0 / lambda)
+    A_effective = 0.365 * np.sqrt(resistivity / wavelength)
+    
+    # Failsafe: Absorptivity physically cannot exceed 1.0 (100%)
+    return min(A_effective, 1.0)

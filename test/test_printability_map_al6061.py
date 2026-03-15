@@ -14,16 +14,16 @@ def test_compute_printability_map():
     
     Power_range = (50, 350)      
     Scan_Speed_range = (0.1, 2.5) 
-    resolution = 50              
+    resolution = 35              
 
-    material = load_material("NiTi_Sheikh.json")
+    material = load_material("Al6061.json")
     
     # Updated to include T_ambient
-    process_parameters = {'t': 30e-6, 'h': 80e-6, 'a': 40e-6, 'T_ambient': 298.0}
+    process_parameters = {'t': 30e-6, 'h': 100e-6, 'a': 25e-6, 'T_ambient': 443}
     
     active_defects = {
         'balling': 'ball01',
-        'lof': 'lof02',
+        'lof': 'lof01',
         'keyhole': 'key01'
     }
 
@@ -55,7 +55,7 @@ def test_plot_deterministic_map(P_grid, v_grid, defect_map, material):
         
         output_dir = os.path.join(os.path.dirname(__file__), 'output')
         os.makedirs(output_dir, exist_ok=True)
-        plt.savefig(os.path.join(output_dir, 'printability_map_test.png'))
+        plt.savefig(os.path.join(output_dir, 'printability_map_Al6061.png'))
         plt.close(fig)
         
         print("SUCCESS")
