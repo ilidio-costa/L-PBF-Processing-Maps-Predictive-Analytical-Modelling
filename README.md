@@ -41,8 +41,8 @@ The table below details the current defect modules, their underlying analytical 
 ### Algorithmic Implementation of Defect Criteria
 | Defect Type | Analytical Model | Python Module | Defect Condition (Returns `True`) |
 | :--- | :--- | :--- | :--- |
-| **Balling** | Plateau-Rayleigh | `ball01.py` | [cite_start]$L/W \ge 2.3$ [cite: 873] |
-| **Balling** | Yadroitsev Stability | `ball02.py` | [cite_start]$\frac{\pi W}{L} \le \sqrt{\frac{2}{3}}$ [cite: 873] |
+| **Balling** | Plateau-Rayleigh | `ball01.py` | $L/W \ge 2.3$ |
+| **Balling** | Yadroitsev Stability | `ball02.py` | $\frac{\pi W}{L} \le \sqrt{\frac{2}{3}}$ |
 | **Lack of Fusion** | Depth-to-Layer Ratio | `lof01.py` | $D \le t$  |
 | **Lack of Fusion** | Geometric Overlap | `lof02.py` | $(\frac{h}{W})^2 + \frac{t}{t+D} \ge 1.0$  |
 | **Lack of Fusion** | Depth-to-Layer Ratio | `lof03.py` | $D/t > 1.5$  |
