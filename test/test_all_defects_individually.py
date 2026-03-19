@@ -18,12 +18,12 @@ def test_all_individual_defects():
     
     Power_range = (50, 500)       
     Scan_Speed_range = (0.1, 3.5) 
-    resolution = 50              
+    resolution = 35              
 
-    material = load_material("NiTi_Sheikh.json")
+    material = load_material("Al6061.json")
     
     # Updated to include T_ambient
-    process_parameters = {'t': 30e-6, 'h': 80e-6, 'a': 40e-6, 'T_ambient': 298.0}
+    process_parameters = {'t': 30e-6, 'h': 100e-6, 'a': 50e-6, 'T_ambient': 443}
     
     output_dir = os.path.join(os.path.dirname(__file__), 'output', 'individual_defects')
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')

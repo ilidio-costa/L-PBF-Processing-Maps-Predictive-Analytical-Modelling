@@ -72,19 +72,25 @@ Each defect module uses a standardized function signature: `def check(dimensions
 * **`plot_deterministic_map`**: Renders pre-computed defect matrices using Gaussian-smoothed contours.
 
 <div align="center">
-  <img src="images/printability_map.png" alt="printability_map" width="250">
+  <img src="images/printability_map.png" alt="printability_map" width="400">
 </div align="left">
 
 * **`plot_safe_zone_evolution`**: A multidimensional engine for "Third Axis" evaluation (e.g., sensitivity to $T_{ambient}$, spot size, or layer thickness).
 
 <div align="center">
-  <img src="images/printability_map_z_axis.png" alt="printability_map_z_axis" width="250">
+  <img src="images/printability_map_z_axis.png" alt="printability_map_z_axis" width="400">
+</div align="left">
+
+* **`plot_all_zones_evolution`**: A multidimensional engine for "Third Axis" evaluation (e.g., sensitivity to $T_{ambient}$, spot size, or layer thickness).
+
+<div align="center">
+  <img src="images/printability_map_z_axis_all.png" alt="printability_map_z_axis" width="400">
 </div align="left">
 
 * **`top_view_eagar_tsai` / `side_view_rubenchik`**: Generates high-fidelity cross-sectional thermal profiles of the melt pool.
 
 <div align="center">
-  <img src="images/eagar_tsai.png" alt="melt pool" width="250">
+  <img src="images/eagar_tsai.png" alt="melt pool" width="400">
 </div align="left">
 
 ### Material Management (`src/data_loader.py`)

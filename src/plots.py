@@ -796,6 +796,80 @@ def plot_safe_zone_evolution(Power_range, Scan_Speed_range, material, base_proce
     
     return fig
 
+def plot_all_zones_evolution(Power_range, Scan_Speed_range, material, base_process_parameters, z_var, z_values, resolution=100, active_defects=None):
+    """
+    Plots a 3D deterministic map showing the evolution of ALL defect zones.
+    The base Z-level shows the full defect map opaquely. Higher Z-levels show 
+    all zones translucently to visualize how boundaries shift.
+    """
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # 1. Formatting Dictionary: Map variables to (Label, Scaling Factor)
+    format_map = {
+        'a': ('Laser Beam Radius, a (µm)', 1e6),
+        'T_ambient': ('Ambient Temperature, T (K)', 1.0),
+        'h': ('Hatch Spacing, h (µm)', 1e6),
+        't': ('Layer Thickness, t (µm)', 1e6),
+        'A': ('Absorptivity, A (%)', 100.0),             
+        'wavelength': ('Laser Wavelength, λ (nm)', 1e9), 
+        'shape_factor': ('Powder Shape Factor', 1.0)     
+    }
+    
+    z_label, z_scale = format_map.get(z_var, (z_var, 1.0))
+    
+    # Sort z_values to ensure the base map is at the absolute bottom
+    z_values = sorted(z_values)
+    z_min_scaled = z_values[0] * z_scale
+    
+    colors_full = ['#140b34', '#f6d746', '#e55c30', '#84206b']
+    labels = ['Safe Zone', 'Balling', 'Lack of Fusion', 'Keyhole']
+    
+    for z_val in z_values:
+        z_plot_offset = z_val * z_scale
+        
+        # 2. Update the varying parameter
+        current_params = base_process_parameters.copy()
+        current_params[z_var] = z_val
+        
+        # 3. Compute the processing map for this specific Z-slice
+        P_grid, v_grid, defect_map = compute_printability_map(
+            Power_range, Scan_Speed_range, material, current_params, 
+            resolution=resolution, active_defects=active_defects
+        )
+        
+        # 4. Determine Layer Transparency
+        # The bottom map is fully visible, upper maps are translucent
+        layer_alpha = 0.9 if z_val == z_values[0] else 0.35
+        
+        # 5. Plot EVERY zone for the current layer
+        for i, color in enumerate(colors_full):
+            binary_mask = (defect_map == i).astype(float)
+            
+            # Optimization: Only plot if this specific defect exists in this Z-slice
+            if np.any(binary_mask):
+                smoothed_mask = gaussian_filter(binary_mask, sigma=1.0)
+                ax.contourf(v_grid, P_grid, smoothed_mask, levels=[0.5, 2.0], 
+                            colors=[color], alpha=layer_alpha, zdir='z', offset=z_plot_offset)
+
+    # 6. Formatting the 3D Plot
+    title_name = z_label.split(',')[0]
+    ax.set_title(f"Overall Processing Map Evolution vs {title_name}\nMaterial: {material.get('name', 'Unknown')}", fontsize=14, pad=20)
+    ax.set_xlabel("Scanning Velocity, v (m/s)", fontsize=12, labelpad=10)
+    ax.set_ylabel("Laser Power, P (W)", fontsize=12, labelpad=10)
+    ax.set_zlabel(z_label, fontsize=12, labelpad=10)
+    
+    # Adjust Z-axis limits using the scaled values
+    ax.set_zlim(z_min_scaled, max(z_values) * z_scale * 1.05)
+    
+    # Add the legend
+    legend_patches = [mpatches.Patch(color=colors_full[i], label=labels[i]) for i in range(4)]
+    ax.legend(handles=legend_patches, loc='center left', bbox_to_anchor=(1.1, 0.5), framealpha=0.9)
+    
+    ax.view_init(elev=25, azim=-45)
+    
+    return fig
+
 ## ======================= Random PLOTS ======================= ##
 def gaussian_laser():
     """

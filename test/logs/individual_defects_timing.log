@@ -1,0 +1,15 @@
+Starting individual defect criteria maps generation...
+Resolution: 35x35
+----------------------------------------
+ball01: 26.95 seconds
+ball02: 30.78 seconds
+key01: 32.35 seconds
+key02: 28.73 seconds
+key03: 25.61 seconds
+key04: 25.61 seconds
+key05: 21.58 seconds
+lof01: 21.48 seconds
+lof02: 20.27 seconds
+lof03: 19.78 seconds
+----------------------------------------
+Total execution time: 253.13 seconds
