@@ -1,6 +1,6 @@
 [![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![v1.0.0-alpha](https://img.shields.io/badge/version-1.0.0--alpha-yellow.svg)](https://github.com/ilidio-costa/L-PBF-Processing-Maps-Predictive-Analytical-Modelling/releases)
+[![v1.0.0](https://img.shields.io/badge/version-1.0.0--alpha-yellow.svg)](https://github.com/ilidio-costa/L-PBF-Processing-Maps-Predictive-Analytical-Modelling/releases)
 
 # Predictive Modeling Of L-PBF Printability Maps
 
@@ -159,6 +159,10 @@ To ensure physical accuracy, thermophysical properties (Density, Specific Heat, 
 
 - D. Schuöcker, *Handbook of the Eurolaser Academy*, Springer International Publishing.
 
+## Citation
+If you use this simulator in your research, please cite it as:
+> [Ilídio Costa] ([2026]). Predictive Modeling Of L-PBF Printability Maps (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.19118312
+
 
 ## License
 Distributed under the **GPLv3 License**. See `LICENSE` for details.
@@ -166,3 +170,8 @@ Distributed under the **GPLv3 License**. See `LICENSE` for details.
 ## Author
 **Ilídio Costa**
 *Personal Project Report: PP-LPBF-PMOLPM-001*
+
+## Contributing
+Contributions are what make the research community thrive! Whether you are a materials scientist or a software engineer, your input is welcome. 
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
